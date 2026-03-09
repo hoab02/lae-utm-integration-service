@@ -1,0 +1,60 @@
+# server.port must always be set from CLI argument
+server:
+  port: 9002
+
+  # this value is overwritten in values file
+  servlet:
+    context-path: /api/v1
+
+spring:
+  application:
+    name: fms-utm-integration-service
+  datasource:
+    url: jdbc:postgresql://localhost:5433/fms_utm_integration
+    username: postgres
+    password: my-password-1
+    driver-class-name: org.postgresql.Driver
+
+    hikari:
+      connection-timeout: 30000 # 30s
+      maximum-pool-size: 30
+
+  jpa:
+    show-sql: false
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: update
+    defer-datasource-initialization: true
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 10
+          order_insert: true
+          order_updates: true
+          time_zone: UTC
+
+  sql:
+    init:
+      mode: always
+      continue-on-error: true
+
+  cloud:
+    stream:
+      kafka:
+        binder:
+          brokers: localhost:9092
+          configuration:
+            acks: all
+            retries: 3
+            enable.idempotence: true
+
+  jackson:
+    default-property-inclusion: non_null
+
+  servlet:
+    multipart:
+      max-request-size: 100MB
+      max-file-size: 100MB
+
+spring-doc:
+  show-actuator: true

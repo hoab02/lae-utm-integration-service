@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE xml>
+<xml status="warn" strict="true">
+    <Properties>
+        <Property name="LOG_FOLDER">./log</Property>
+        <Property name="LOG_PATTERN">[%highlight{%d{yyyy-MM-dd'T'HH:mm:ss.SSSZ}{bold}}] [%p] [%t] %c{1.} - %msg%n
+        </Property>
+    </Properties>
+    <Appenders>
+        <Console name="console">
+            <PatternLayout pattern="${LOG_PATTERN}"/>
+        </Console>
+        <RollingFile name="tracelog"
+                     fileName="${LOG_FOLDER}/app.trc"
+                     filePattern="${LOG_FOLDER}/$${date:yyyy-MM}/app-%d{yyyy-MM-dd}-%i.trc">
+            <PatternLayout pattern="${LOG_PATTERN}"/>
+            <Policies>
+                <SizeBasedTriggeringPolicy size="19500KB"/>
+            </Policies>
+            <DefaultRolloverStrategy max="6">
+                <Delete basePath="${LOG_FOLDER}" maxDepth="2">
+                    <IfFileName glob="*/app-*.trc">
+                        <IfLastModified age="1d"/>
+                    </IfFileName>
+                </Delete>
+            </DefaultRolloverStrategy>
+        </RollingFile>
+        <RollingFile name="errorlog"
+                     fileName="${LOG_FOLDER}/app-error.trc"
+                     filePattern="${LOG_FOLDER}/$${date:yyyy-MM}/app-error-%d{yyyy-MM-dd}-%i.trc">
+            <PatternLayout pattern="${LOG_PATTERN}"/>
+            <LevelRangeFilter minLevel="ERROR" maxLevel="ERROR" onMatch="ACCEPT" onMismatch="DENY"/>
+            <Policies>
+                <SizeBasedTriggeringPolicy size="19500KB"/>
+            </Policies>
+            <DefaultRolloverStrategy max="6">
+                <Delete basePath="${LOG_FOLDER}" maxDepth="2">
+                    <IfFileName glob="*/app-error-*.trc">
+                        <IfLastModified age="1d"/>
+                    </IfFileName>
+                </Delete>
+            </DefaultRolloverStrategy>
+        </RollingFile>
+    </Appenders>
+    <Loggers>
+        <Logger name="com.viettelpost.fms.utm_integration" additivity="false" level="info">
+            <AppenderRef ref="console"/>
+            <AppenderRef ref="tracelog"/>
+            <AppenderRef ref="errorlog"/>
+        </Logger>
+        <Root level="info">
+            <AppenderRef ref="console"/>
+            <AppenderRef ref="tracelog"/>
+            <AppenderRef ref="errorlog"/>
+        </Root>
+    </Loggers>
+</xml>

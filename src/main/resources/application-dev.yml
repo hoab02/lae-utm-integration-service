@@ -1,0 +1,20 @@
+# Override the properties for dev environment here
+
+server:
+  port: 9002
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5433/fms_utm_integration
+    username: postgres
+    password: my-password-1
+  cloud:
+    function:
+      definition: exampleCreated
+    stream:
+      bindings:
+        exampleCreated-in-0:
+          destination: example.created
+          group: ${spring.application.name}
+        exampleCreated-out-0:
+          destination: example.created
