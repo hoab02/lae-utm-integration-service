@@ -12,8 +12,8 @@ public class OpenApiConfig {
     public OpenAPI customOpenAPI() {
         return new OpenAPI()
                 .info(new Info()
-                        .title("FMS Order API")
+                        .title("FMS UTM Integration API")
                         .version("1.0.0")
-                        .description("API documentation for FMS Order Service"));
+                        .description("API documentation for the FMS UTM integration service"));
     }
 }
