@@ -9,7 +9,9 @@ public enum ErrorCode {
 
     ERROR_GENERAL("error.general"),
     ERROR_REQUEST_INVALID("error.request.invalid"),
-    ERROR_PERMISSION_DENIED("error.permission");
+    ERROR_PERMISSION_DENIED("error.permission"),
+    ERROR_SESSION_ALREADY_CONNECTED("error.session.already.connected"),
+    ERROR_SESSION_NOT_CONNECTED("error.session.not.connected");
 
     private final String i18Key;
 }

@@ -19,7 +19,7 @@ import java.util.TimeZone;
 /**
  * This configuration contains th project specific config and the bean provider
  */
-@EnableJpaRepositories(basePackages = "com.viettelpost.fms.utm_integration.repository")
+@EnableJpaRepositories(basePackages = "com.viettelpost.fms.utm_integration")
 @Configuration
 @Getter
 public class ApplicationConfig {
