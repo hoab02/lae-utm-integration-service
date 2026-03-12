@@ -275,3 +275,36 @@ Review the current module and explain:
 3. what the smallest safe phase-1 patch should be
 
 Do not change files yet.
+```
+
+---
+
+# Gợi ý rất thực dụng
+
+Khi làm phase 1, bạn nên đưa Codex prompt này trước tiên:
+
+```text
+codex "Focus only on fms-utm-integration-service.
+Read AGENTS.md and docs/tasks/phase-3-approval.md first.
+Review the current codebase after the completed session module and explain:
+1. where the approval module should live
+2. which existing infrastructure and session module pieces can be reused
+3. what the smallest safe patch is to implement a minimal approval module with FlightApprovalEntity, FlightApprovalRepository, FlightApprovalService, FlightApprovalController, and an outbound UTM approval adapter boundary.
+
+Do not change files yet."
+```
+
+```text
+codex "Focus only on fms-utm-integration-service.
+Read AGENTS.md and docs/tasks/phase-3-approval.md first.
+Implement phase 3 based on the reviewed plan.
+Build a minimal approval module with approval.domain.FlightApprovalEntity, approval.repository.FlightApprovalRepository, approval.service.FlightApprovalService, approval.service.FlightApprovalServiceImpl, approval.web.FlightApprovalController, approval.client.UtmApprovalClient, and a minimal stub outbound approval client if needed for wiring.
+Add internal DTOs for controller and client boundaries.
+Reuse the existing ApprovalStatus enum and do not introduce a new approval state unless strictly necessary.
+Prefer CREATED then SENT or PENDING over inventing a new initial status if the enum already exists.
+Require an active connected UTM session before submission, preferably by reusing the session service rather than reading session repository directly.
+Implement only submit and query by planId.
+Do not implement callback/update flow, mission integration, retry logic, or scheduler logic yet.
+Do not remove Example* classes unless they directly block compilation.
+Do not introduce new frameworks. Keep changes scoped to the approval module and necessary shared infrastructure only.
+After editing, run the smallest relevant build command, summarize changes, list files changed, explain assumptions and temporary stubs, and recommend the next task."

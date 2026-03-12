@@ -1,65 +1,67 @@
-# Phase 3 - Build approval flow
+# Phase 4 - Build mission runtime
 
 ## Goal
-Implement the approval lifecycle used to request and track flight approval from UTM.
+Implement the mission runtime module used for airborne, landing, completion, and emergency reporting.
 
 ## Scope
-Build a minimal but explicit approval module with clear states.
+Build the first explicit mission state flow.
 
 ## Expected capabilities
-- create approval request
-- submit approval request to UTM
-- persist approval status
-- query approval status internally
-- prepare for later callback/update handling
+- create / track mission runtime state
+- report airborne
+- report landing
+- report completion
+- report emergency
+- validate mission transitions
 
 ## Suggested components
 
 ### Domain
-- `FlightApprovalEntity`
-- `ApprovalStatus`
+- `MissionEntity`
+- `MissionState`
 
 ### Repository
-- `FlightApprovalRepository`
+- `MissionRepository`
 
 ### Service
-- `FlightApprovalService`
+- `MissionService`
 
 ### Web
-- `FlightApprovalController`
+- `MissionController`
 
 ### Client / adapter
-- `UtmApprovalRestClient` or similar
+- `UtmMissionRestClient` or similar
 
-## Suggested fields for approval entity
+## Suggested fields for mission entity
 - id
-- planId
 - missionId
+- planId
 - droneId
-- pilotId
-- utmRequestId
-- status
-- requestedAt
-- approvedAt
-- rejectedAt
-- rejectReason
+- state
+- airborneAt
+- landingAt
+- completedAt
+- emergencyFlag
+- emergencyReason
 
 ## Suggested internal endpoints
-- `POST /internal/utm/flight-approvals`
-- `GET /internal/utm/flight-approvals/{planId}`
+- `POST /internal/utm/missions/airborne`
+- `POST /internal/utm/missions/landing`
+- `POST /internal/utm/missions/complete`
+- `POST /internal/utm/missions/emergency`
 
 ## Rules
-- approval submission should be explicit
-- approval state must not be hidden in raw response payloads
-- later mission airborne flow must depend on `APPROVED`
+- `AIRBORNE` must require approval state `APPROVED`
+- state transitions should be explicit
+- emergency should remain visible as a first-class event/state concern
 
 ## Constraints
-- keep outbound UTM integration behind an adapter/client
-- keep changes scoped
-- avoid building the full callback system unless needed for compilation
+- keep implementation incremental
+- avoid adding large reliability infrastructure in this phase
+- preserve clean separation for future telemetry and command modules
 
 ## Done when
-- approval records can be created and updated
-- approval state is explicit
-- internal API can submit and query approval
-- the module compiles and is ready for mission dependency
+- mission states exist explicitly
+- mission transitions are validated
+- airborne / landing / completion / emergency are exposed internally
+- module compiles and is ready to integrate with approval dependency

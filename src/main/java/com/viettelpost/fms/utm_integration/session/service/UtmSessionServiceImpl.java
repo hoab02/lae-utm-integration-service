@@ -7,6 +7,7 @@ import com.viettelpost.fms.utm_integration.session.domain.SessionStatus;
 import com.viettelpost.fms.utm_integration.session.domain.UtmSessionEntity;
 import com.viettelpost.fms.utm_integration.session.dto.UtmSessionClientConnectResult;
 import com.viettelpost.fms.utm_integration.session.dto.UtmSessionClientDisconnectRequest;
+import com.viettelpost.fms.utm_integration.session.dto.UtmSessionContextDto;
 import com.viettelpost.fms.utm_integration.session.dto.UtmSessionStatusDto;
 import com.viettelpost.fms.utm_integration.session.repository.UtmSessionRepository;
 import lombok.RequiredArgsConstructor;
@@ -37,7 +38,7 @@ public class UtmSessionServiceImpl implements UtmSessionService {
         session.setExpiresAt(connectResult.expiresAt());
         session.setFailureReason(null);
 
-        return toDto(utmSessionRepository.save(session));
+        return toStatusDto(utmSessionRepository.save(session));
     }
 
     @Override
@@ -58,15 +59,25 @@ public class UtmSessionServiceImpl implements UtmSessionService {
             session.setConnectedAt(new Date());
         }
 
-        return toDto(utmSessionRepository.save(session));
+        return toStatusDto(utmSessionRepository.save(session));
     }
 
     @Override
     @Transactional(readOnly = true)
     public UtmSessionStatusDto getCurrentStatus() {
         return utmSessionRepository.findTopByOrderByCreatedDateDesc()
-                .map(this::toDto)
+                .map(this::toStatusDto)
                 .orElseGet(() -> UtmSessionStatusDto.builder()
+                        .status(SessionStatus.DISCONNECTED)
+                        .build());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public UtmSessionContextDto getCurrentSessionContext() {
+        return utmSessionRepository.findTopByOrderByCreatedDateDesc()
+                .map(this::toContextDto)
+                .orElseGet(() -> UtmSessionContextDto.builder()
                         .status(SessionStatus.DISCONNECTED)
                         .build());
     }
@@ -90,7 +101,7 @@ public class UtmSessionServiceImpl implements UtmSessionService {
         }
     }
 
-    private UtmSessionStatusDto toDto(UtmSessionEntity session) {
+    private UtmSessionStatusDto toStatusDto(UtmSessionEntity session) {
         return UtmSessionStatusDto.builder()
                 .id(session.getId())
                 .sessionId(session.getSessionId())
@@ -99,6 +110,14 @@ public class UtmSessionServiceImpl implements UtmSessionService {
                 .lastHeartbeatAt(session.getLastHeartbeatAt())
                 .expiresAt(session.getExpiresAt())
                 .failureReason(session.getFailureReason())
+                .build();
+    }
+
+    private UtmSessionContextDto toContextDto(UtmSessionEntity session) {
+        return UtmSessionContextDto.builder()
+                .sessionId(session.getSessionId())
+                .token(session.getToken())
+                .status(session.getStatus())
                 .build();
     }
 }
