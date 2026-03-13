@@ -12,7 +12,9 @@ public enum ErrorCode {
     ERROR_PERMISSION_DENIED("error.permission"),
     ERROR_SESSION_ALREADY_CONNECTED("error.session.already.connected"),
     ERROR_SESSION_NOT_CONNECTED("error.session.not.connected"),
-    ERROR_APPROVAL_NOT_FOUND("error.approval.not.found");
+    ERROR_APPROVAL_NOT_FOUND("error.approval.not.found"),
+    ERROR_APPROVAL_NOT_APPROVED("error.approval.not.approved"),
+    ERROR_MISSION_TRANSITION_INVALID("error.mission.transition.invalid");
 
     private final String i18Key;
 }
