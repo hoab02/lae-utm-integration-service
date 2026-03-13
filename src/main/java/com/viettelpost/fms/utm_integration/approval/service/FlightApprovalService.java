@@ -9,4 +9,6 @@ public interface FlightApprovalService {
     FlightApprovalStatusDto submit(FlightApprovalSubmitRequest request) throws I18nException;
 
     FlightApprovalStatusDto getByPlanId(String planId) throws I18nException;
+
+    FlightApprovalStatusDto markApproved(String planId) throws I18nException;
 }

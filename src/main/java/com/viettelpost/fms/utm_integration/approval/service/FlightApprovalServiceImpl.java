@@ -17,6 +17,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Date;
+
 @Service
 @RequiredArgsConstructor
 public class FlightApprovalServiceImpl implements FlightApprovalService {
@@ -68,6 +70,22 @@ public class FlightApprovalServiceImpl implements FlightApprovalService {
                 .orElseThrow(() -> new InternalException(ErrorCode.ERROR_APPROVAL_NOT_FOUND));
     }
 
+    @Override
+    @Transactional
+    public FlightApprovalStatusDto markApproved(String planId) throws InternalException {
+        FlightApprovalEntity approval = flightApprovalRepository.findByPlanId(planId)
+                .orElseThrow(() -> new InternalException(ErrorCode.ERROR_APPROVAL_NOT_FOUND));
+
+        validateApproveTransition(approval);
+
+        approval.setStatus(ApprovalStatus.APPROVED);
+        approval.setApprovedAt(new Date());
+        approval.setRejectedAt(null);
+        approval.setRejectReason(null);
+
+        return toDto(flightApprovalRepository.save(approval));
+    }
+
     private UtmSessionContextDto requireConnectedSession() throws InternalException {
         UtmSessionContextDto sessionContext = utmSessionService.getCurrentSessionContext();
         if (!SessionStatus.CONNECTED.equals(sessionContext.status())) {
@@ -79,6 +97,12 @@ public class FlightApprovalServiceImpl implements FlightApprovalService {
     private void validateSubmitTransition(FlightApprovalEntity approval) throws InternalException {
         if (ApprovalStatus.SUBMITTED.equals(approval.getStatus())
                 || ApprovalStatus.APPROVED.equals(approval.getStatus())) {
+            throw new InternalException(ErrorCode.ERROR_REQUEST_INVALID);
+        }
+    }
+
+    private void validateApproveTransition(FlightApprovalEntity approval) throws InternalException {
+        if (!ApprovalStatus.SUBMITTED.equals(approval.getStatus())) {
             throw new InternalException(ErrorCode.ERROR_REQUEST_INVALID);
         }
     }
