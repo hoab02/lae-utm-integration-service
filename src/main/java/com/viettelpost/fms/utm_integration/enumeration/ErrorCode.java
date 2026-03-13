@@ -14,7 +14,10 @@ public enum ErrorCode {
     ERROR_SESSION_NOT_CONNECTED("error.session.not.connected"),
     ERROR_APPROVAL_NOT_FOUND("error.approval.not.found"),
     ERROR_APPROVAL_NOT_APPROVED("error.approval.not.approved"),
-    ERROR_MISSION_TRANSITION_INVALID("error.mission.transition.invalid");
+    ERROR_MISSION_TRANSITION_INVALID("error.mission.transition.invalid"),
+    ERROR_PILOT_REGISTRATION_NOT_FOUND("error.pilot.registration.not.found"),
+    ERROR_DRONE_REGISTRATION_NOT_FOUND("error.drone.registration.not.found"),
+    ERROR_REGISTRATION_ALREADY_SUBMITTED("error.registration.already.submitted");
 
     private final String i18Key;
 }
