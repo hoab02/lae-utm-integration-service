@@ -5,9 +5,14 @@ import com.viettelpost.fms.utm_integration.approval.domain.ApprovalStatus;
 import com.viettelpost.fms.utm_integration.approval.domain.FlightApprovalEntity;
 import com.viettelpost.fms.utm_integration.approval.dto.FlightApprovalSubmitRequest;
 import com.viettelpost.fms.utm_integration.approval.dto.UtmApprovalSubmissionResult;
+import com.viettelpost.fms.utm_integration.approval.repository.FlightApprovalRepository;
 import com.viettelpost.fms.utm_integration.enumeration.ErrorCode;
 import com.viettelpost.fms.utm_integration.exception.InternalException;
-import com.viettelpost.fms.utm_integration.approval.repository.FlightApprovalRepository;
+import com.viettelpost.fms.utm_integration.registry.domain.RegistrationStatus;
+import com.viettelpost.fms.utm_integration.registry.dto.DroneRegistrationStatusDto;
+import com.viettelpost.fms.utm_integration.registry.dto.PilotRegistrationStatusDto;
+import com.viettelpost.fms.utm_integration.registry.service.DroneRegistrationService;
+import com.viettelpost.fms.utm_integration.registry.service.PilotRegistrationService;
 import com.viettelpost.fms.utm_integration.session.domain.SessionStatus;
 import com.viettelpost.fms.utm_integration.session.dto.UtmSessionContextDto;
 import com.viettelpost.fms.utm_integration.session.service.UtmSessionService;
@@ -41,11 +46,17 @@ class FlightApprovalServiceImplTest {
     @Mock
     private UtmSessionService utmSessionService;
 
+    @Mock
+    private PilotRegistrationService pilotRegistrationService;
+
+    @Mock
+    private DroneRegistrationService droneRegistrationService;
+
     @InjectMocks
     private FlightApprovalServiceImpl flightApprovalService;
 
     @Test
-    void submitThenMarkApprovedShouldAdvanceApprovalToApproved() throws InternalException {
+    void submitThenMarkApprovedShouldAdvanceApprovalToApproved() throws Exception {
         Date requestedAt = new Date();
         AtomicReference<FlightApprovalEntity> storedApproval = new AtomicReference<>();
 
@@ -53,6 +64,14 @@ class FlightApprovalServiceImplTest {
                 .sessionId("session-1")
                 .token("token-1")
                 .status(SessionStatus.CONNECTED)
+                .build());
+        when(pilotRegistrationService.getByPilotId("pilot-1")).thenReturn(PilotRegistrationStatusDto.builder()
+                .pilotId("pilot-1")
+                .status(RegistrationStatus.APPROVED)
+                .build());
+        when(droneRegistrationService.getByDroneId("drone-1")).thenReturn(DroneRegistrationStatusDto.builder()
+                .droneId("drone-1")
+                .status(RegistrationStatus.APPROVED)
                 .build());
         when(utmApprovalClient.submit(any())).thenReturn(UtmApprovalSubmissionResult.builder()
                 .utmRequestId("utm-request-1")
@@ -83,7 +102,7 @@ class FlightApprovalServiceImplTest {
     }
 
     @Test
-    void markApprovedShouldPersistApprovedStatusWhenCurrentStatusIsSubmitted() throws InternalException {
+    void markApprovedShouldPersistApprovedStatusWhenCurrentStatusIsSubmitted() throws Exception {
         FlightApprovalEntity approval = FlightApprovalEntity.builder()
                 .planId("plan-1")
                 .status(ApprovalStatus.SUBMITTED)
@@ -120,6 +139,102 @@ class FlightApprovalServiceImplTest {
         when(flightApprovalRepository.findByPlanId("plan-1")).thenReturn(Optional.of(approval));
 
         InternalException ex = assertThrows(InternalException.class, () -> flightApprovalService.markApproved("plan-1"));
+
+        assertEquals(ErrorCode.ERROR_REQUEST_INVALID.name(), ex.getErrorCode());
+    }
+
+    @Test
+    void submitShouldRejectWhenPilotRegistrationIsMissing() throws Exception {
+        when(utmSessionService.getCurrentSessionContext()).thenReturn(UtmSessionContextDto.builder()
+                .sessionId("session-1")
+                .token("token-1")
+                .status(SessionStatus.CONNECTED)
+                .build());
+        when(flightApprovalRepository.findByPlanId("plan-1")).thenReturn(Optional.empty());
+        when(pilotRegistrationService.getByPilotId("pilot-1"))
+                .thenThrow(new InternalException(ErrorCode.ERROR_PILOT_REGISTRATION_NOT_FOUND));
+
+        InternalException ex = assertThrows(InternalException.class, () -> flightApprovalService.submit(FlightApprovalSubmitRequest.builder()
+                .planId("plan-1")
+                .missionId("mission-1")
+                .droneId("drone-1")
+                .pilotId("pilot-1")
+                .build()));
+
+        assertEquals(ErrorCode.ERROR_REQUEST_INVALID.name(), ex.getErrorCode());
+    }
+
+    @Test
+    void submitShouldRejectWhenPilotRegistrationIsNotApproved() throws Exception {
+        when(utmSessionService.getCurrentSessionContext()).thenReturn(UtmSessionContextDto.builder()
+                .sessionId("session-1")
+                .token("token-1")
+                .status(SessionStatus.CONNECTED)
+                .build());
+        when(flightApprovalRepository.findByPlanId("plan-1")).thenReturn(Optional.empty());
+        when(pilotRegistrationService.getByPilotId("pilot-1")).thenReturn(PilotRegistrationStatusDto.builder()
+                .pilotId("pilot-1")
+                .status(RegistrationStatus.SUBMITTED)
+                .build());
+
+        InternalException ex = assertThrows(InternalException.class, () -> flightApprovalService.submit(FlightApprovalSubmitRequest.builder()
+                .planId("plan-1")
+                .missionId("mission-1")
+                .droneId("drone-1")
+                .pilotId("pilot-1")
+                .build()));
+
+        assertEquals(ErrorCode.ERROR_REQUEST_INVALID.name(), ex.getErrorCode());
+    }
+
+    @Test
+    void submitShouldRejectWhenDroneRegistrationIsMissing() throws Exception {
+        when(utmSessionService.getCurrentSessionContext()).thenReturn(UtmSessionContextDto.builder()
+                .sessionId("session-1")
+                .token("token-1")
+                .status(SessionStatus.CONNECTED)
+                .build());
+        when(flightApprovalRepository.findByPlanId("plan-1")).thenReturn(Optional.empty());
+        when(pilotRegistrationService.getByPilotId("pilot-1")).thenReturn(PilotRegistrationStatusDto.builder()
+                .pilotId("pilot-1")
+                .status(RegistrationStatus.APPROVED)
+                .build());
+        when(droneRegistrationService.getByDroneId("drone-1"))
+                .thenThrow(new InternalException(ErrorCode.ERROR_DRONE_REGISTRATION_NOT_FOUND));
+
+        InternalException ex = assertThrows(InternalException.class, () -> flightApprovalService.submit(FlightApprovalSubmitRequest.builder()
+                .planId("plan-1")
+                .missionId("mission-1")
+                .droneId("drone-1")
+                .pilotId("pilot-1")
+                .build()));
+
+        assertEquals(ErrorCode.ERROR_REQUEST_INVALID.name(), ex.getErrorCode());
+    }
+
+    @Test
+    void submitShouldRejectWhenDroneRegistrationIsNotApproved() throws Exception {
+        when(utmSessionService.getCurrentSessionContext()).thenReturn(UtmSessionContextDto.builder()
+                .sessionId("session-1")
+                .token("token-1")
+                .status(SessionStatus.CONNECTED)
+                .build());
+        when(flightApprovalRepository.findByPlanId("plan-1")).thenReturn(Optional.empty());
+        when(pilotRegistrationService.getByPilotId("pilot-1")).thenReturn(PilotRegistrationStatusDto.builder()
+                .pilotId("pilot-1")
+                .status(RegistrationStatus.APPROVED)
+                .build());
+        when(droneRegistrationService.getByDroneId("drone-1")).thenReturn(DroneRegistrationStatusDto.builder()
+                .droneId("drone-1")
+                .status(RegistrationStatus.SUSPENDED)
+                .build());
+
+        InternalException ex = assertThrows(InternalException.class, () -> flightApprovalService.submit(FlightApprovalSubmitRequest.builder()
+                .planId("plan-1")
+                .missionId("mission-1")
+                .droneId("drone-1")
+                .pilotId("pilot-1")
+                .build()));
 
         assertEquals(ErrorCode.ERROR_REQUEST_INVALID.name(), ex.getErrorCode());
     }

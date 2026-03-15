@@ -12,6 +12,11 @@ import com.viettelpost.fms.utm_integration.mission.domain.MissionEntity;
 import com.viettelpost.fms.utm_integration.mission.repository.MissionRepository;
 import com.viettelpost.fms.utm_integration.mission.service.MissionServiceImpl;
 import com.viettelpost.fms.utm_integration.mission.web.MissionController;
+import com.viettelpost.fms.utm_integration.registry.domain.RegistrationStatus;
+import com.viettelpost.fms.utm_integration.registry.dto.DroneRegistrationStatusDto;
+import com.viettelpost.fms.utm_integration.registry.dto.PilotRegistrationStatusDto;
+import com.viettelpost.fms.utm_integration.registry.service.DroneRegistrationService;
+import com.viettelpost.fms.utm_integration.registry.service.PilotRegistrationService;
 import com.viettelpost.fms.utm_integration.session.client.StubUtmSessionClient;
 import com.viettelpost.fms.utm_integration.session.domain.UtmSessionEntity;
 import com.viettelpost.fms.utm_integration.session.repository.UtmSessionRepository;
@@ -75,12 +80,18 @@ class ApprovalMissionHttpFlowTest {
     @MockBean
     private MissionRepository missionRepository;
 
+    @MockBean
+    private PilotRegistrationService pilotRegistrationService;
+
+    @MockBean
+    private DroneRegistrationService droneRegistrationService;
+
     private final AtomicReference<UtmSessionEntity> storedSession = new AtomicReference<>();
     private final AtomicReference<FlightApprovalEntity> storedApproval = new AtomicReference<>();
     private final AtomicReference<MissionEntity> storedMission = new AtomicReference<>();
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         storedSession.set(null);
         storedApproval.set(null);
         storedMission.set(null);
@@ -120,6 +131,15 @@ class ApprovalMissionHttpFlowTest {
             storedMission.set(mission);
             return mission;
         });
+
+        when(pilotRegistrationService.getByPilotId("pilot-1")).thenReturn(PilotRegistrationStatusDto.builder()
+                .pilotId("pilot-1")
+                .status(RegistrationStatus.APPROVED)
+                .build());
+        when(droneRegistrationService.getByDroneId("drone-1")).thenReturn(DroneRegistrationStatusDto.builder()
+                .droneId("drone-1")
+                .status(RegistrationStatus.APPROVED)
+                .build());
     }
 
     @Test

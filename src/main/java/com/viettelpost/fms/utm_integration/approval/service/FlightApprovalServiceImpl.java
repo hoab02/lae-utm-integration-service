@@ -1,5 +1,6 @@
 package com.viettelpost.fms.utm_integration.approval.service;
 
+import com.viettelpost.fms.common.exception.I18nException;
 import com.viettelpost.fms.utm_integration.approval.client.UtmApprovalClient;
 import com.viettelpost.fms.utm_integration.approval.domain.ApprovalStatus;
 import com.viettelpost.fms.utm_integration.approval.domain.FlightApprovalEntity;
@@ -10,6 +11,9 @@ import com.viettelpost.fms.utm_integration.approval.dto.UtmApprovalSubmissionRes
 import com.viettelpost.fms.utm_integration.approval.repository.FlightApprovalRepository;
 import com.viettelpost.fms.utm_integration.enumeration.ErrorCode;
 import com.viettelpost.fms.utm_integration.exception.InternalException;
+import com.viettelpost.fms.utm_integration.registry.domain.RegistrationStatus;
+import com.viettelpost.fms.utm_integration.registry.service.DroneRegistrationService;
+import com.viettelpost.fms.utm_integration.registry.service.PilotRegistrationService;
 import com.viettelpost.fms.utm_integration.session.domain.SessionStatus;
 import com.viettelpost.fms.utm_integration.session.dto.UtmSessionContextDto;
 import com.viettelpost.fms.utm_integration.session.service.UtmSessionService;
@@ -26,6 +30,8 @@ public class FlightApprovalServiceImpl implements FlightApprovalService {
     private final FlightApprovalRepository flightApprovalRepository;
     private final UtmApprovalClient utmApprovalClient;
     private final UtmSessionService utmSessionService;
+    private final PilotRegistrationService pilotRegistrationService;
+    private final DroneRegistrationService droneRegistrationService;
 
     @Override
     @Transactional
@@ -38,6 +44,7 @@ public class FlightApprovalServiceImpl implements FlightApprovalService {
                         .build());
 
         validateSubmitTransition(approval);
+        validateRegistryApprovalPrerequisites(request);
 
         approval.setMissionId(request.getMissionId());
         approval.setDroneId(request.getDroneId());
@@ -97,6 +104,21 @@ public class FlightApprovalServiceImpl implements FlightApprovalService {
     private void validateSubmitTransition(FlightApprovalEntity approval) throws InternalException {
         if (ApprovalStatus.SUBMITTED.equals(approval.getStatus())
                 || ApprovalStatus.APPROVED.equals(approval.getStatus())) {
+            throw new InternalException(ErrorCode.ERROR_REQUEST_INVALID);
+        }
+    }
+
+    private void validateRegistryApprovalPrerequisites(FlightApprovalSubmitRequest request) throws InternalException {
+        try {
+            if (!RegistrationStatus.APPROVED.equals(pilotRegistrationService.getByPilotId(request.getPilotId()).getStatus())
+                    || !RegistrationStatus.APPROVED.equals(droneRegistrationService.getByDroneId(request.getDroneId()).getStatus())) {
+                throw new InternalException(ErrorCode.ERROR_REQUEST_INVALID);
+            }
+        } catch (I18nException ex) {
+            if (ex instanceof InternalException internalException
+                    && ErrorCode.ERROR_REQUEST_INVALID.name().equals(internalException.getErrorCode())) {
+                throw internalException;
+            }
             throw new InternalException(ErrorCode.ERROR_REQUEST_INVALID);
         }
     }
