@@ -1,4 +1,4 @@
 /**
- * Session lifecycle capability for connecting the service to UTM.
+ * Token-based authentication and session lifecycle capability for UTM integration.
  */
 package com.viettelpost.fms.utm_integration.session;

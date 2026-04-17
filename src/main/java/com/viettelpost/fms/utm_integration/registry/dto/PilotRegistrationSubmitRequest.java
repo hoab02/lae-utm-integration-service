@@ -9,6 +9,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.util.Date;
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -17,6 +19,20 @@ import lombok.Setter;
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class PilotRegistrationSubmitRequest {
 
-    @NotBlank(message = "pilot_id is required")
-    private String pilotId;
+    private String personalIdNumber;
+    private String fullName;
+    private String dateOfBirth;
+    private String personalIdType;
+    private String phoneNumber;
+    private String contactAddress;
+    private String cityCode;
+    private String districtCode;
+    private String wardCode;
+    private String licenseNumber;
+    private String licenseClass;
+    private String issuedDate;
+    private String issuedBy;
+    private String expiryDate;
+    private String licenseImageUrl;
+    private String status;
 }

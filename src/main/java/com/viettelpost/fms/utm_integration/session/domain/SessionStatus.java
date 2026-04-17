@@ -3,8 +3,7 @@ package com.viettelpost.fms.utm_integration.session.domain;
 public enum SessionStatus {
 
     DISCONNECTED,
-    CONNECTING,
+    AUTHENTICATING,
     CONNECTED,
-    HEARTBEAT_DUE,
     FAILED
 }

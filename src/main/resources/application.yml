@@ -1,23 +1,33 @@
 # server.port must always be set from CLI argument
 server:
-  port: 9002
-
-  # this value is overwritten in values file
+  port: 8100
   servlet:
-    context-path: /api/v1
+    context-path: /fms-utm-integration-service/api/v1
 
 spring:
   application:
     name: fms-utm-integration-service
   datasource:
-    url: jdbc:postgresql://localhost:5433/fms_utm_integration
-    username: postgres
-    password: my-password-1
+    url: jdbc:postgresql://171.244.51.249:8001/lae_utm?currentSchema=lae_utm
+    username: lae_user
+    password: fsy21da3E
     driver-class-name: org.postgresql.Driver
-
     hikari:
       connection-timeout: 30000 # 30s
       maximum-pool-size: 30
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+#      password: ksFFSGYkbIFUBrw7st2plX
+#      timeout: 2000ms
+#      lettuce:
+#        pool:
+#          max-active: 10
+#          max-idle: 10
+#          min-idle: 2
+#          max-wait: 2000ms
 
   jpa:
     show-sql: false
@@ -37,16 +47,22 @@ spring:
     init:
       mode: always
       continue-on-error: true
-
+  kafka:
+    bootstrap-servers: 10.29.106.147:9092
   cloud:
     stream:
+      output-bindings: sessionStatusOut
       kafka:
         binder:
-          brokers: localhost:9092
+          brokers: 10.29.106.147:9092
           configuration:
             acks: all
             retries: 3
             enable.idempotence: true
+      bindings:
+        sessionStatusOut:
+          destination: utm.session.status.changed
+          content-type: application/json
 
   jackson:
     default-property-inclusion: non_null
@@ -58,3 +74,54 @@ spring:
 
 spring-doc:
   show-actuator: true
+
+app:
+  security:
+    internal-auth-required: false
+  transport:
+    kafka:
+      enabled: true
+      topics:
+        session-status-updates: utm.session.status.changed
+        pilot-registration-result-updates: utm.registry.pilot.updated
+        drone-registration-result-updates: utm.registry.drone.updated
+        flight-approval-result-updates: flight.status-updated.utm
+        nfz-updates: utm.airspace.nfz.updated
+        corridor-updates: utm.airspace.corridor.updated
+    redis:
+      enabled: false
+      channels:
+        telemetry-inbound: fms.utm.telemetry.inbound
+    mqtt:
+      enabled: true
+      broker-url: tcp://localhost:1883
+      client-id: fms-utm-integration-service
+      qos: 1
+      topics:
+        telemetry-uplink: utm/telemetry/uplink
+        command-downlink: utm/command/downlink
+        command-ack-uplink: utm/command/ack/uplink
+        airspace-nfz-updates: utm/airspace/nfz/updates
+        airspace-corridor-updates: utm/airspace/corridor/updates
+        flight-approval-status-updates: utm/flight-approval/status/updates
+      subscribers:
+        approval-enabled: true
+        airspace-enabled: true
+
+integration:
+  utm:
+    base-url: http://localhost:8081
+    dcs-id: vtp_system
+    username: vtpost
+    password: 123456a@
+    auth:
+      token-path: /utm-qg/oauth2/token
+      refresh-path: /utm-qg/oauth2/refresh_token
+      refresh-before-seconds: 300
+    registry:
+      drone-path: /DroneRegistry
+      pilot-license-path: /PilotLicense
+    approval:
+      submit-path: /api/v1/flight-approvals
+    worker:
+      refresh-interval-ms: 60000

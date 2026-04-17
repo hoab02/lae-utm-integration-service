@@ -3,6 +3,7 @@ package com.viettelpost.fms.utm_integration.registry.dto;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.viettelpost.fms.utm_integration.registry.domain.RegistrationStatus;
+import com.viettelpost.fms.utm_integration.registry.domain.RegistrationSyncStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -21,9 +22,9 @@ public class DroneRegistrationStatusDto {
 
     private String id;
 
-    private String droneId;
-
     private String utmDroneId;
+
+    private RegistrationSyncStatus syncStatus;
 
     private RegistrationStatus status;
 
@@ -34,4 +35,20 @@ public class DroneRegistrationStatusDto {
     private Date rejectedAt;
 
     private String rejectReason;
+
+    private Integer droneStatus;
+
+    private Integer statusLegit;
+
+    private String statusLegitNote;
+
+    private String registrationId;
+
+    private String serialNumber;
+
+    private Date lastSyncedAt;
+
+    private String errorCode;
+
+    private String errorMessage;
 }

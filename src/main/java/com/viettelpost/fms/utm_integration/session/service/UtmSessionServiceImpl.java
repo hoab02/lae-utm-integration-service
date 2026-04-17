@@ -2,91 +2,114 @@ package com.viettelpost.fms.utm_integration.session.service;
 
 import com.viettelpost.fms.utm_integration.enumeration.ErrorCode;
 import com.viettelpost.fms.utm_integration.exception.InternalException;
-import com.viettelpost.fms.utm_integration.session.client.UtmSessionClient;
 import com.viettelpost.fms.utm_integration.session.domain.SessionStatus;
 import com.viettelpost.fms.utm_integration.session.domain.UtmSessionEntity;
-import com.viettelpost.fms.utm_integration.session.dto.UtmSessionClientConnectResult;
-import com.viettelpost.fms.utm_integration.session.dto.UtmSessionClientDisconnectRequest;
-import com.viettelpost.fms.utm_integration.session.dto.UtmSessionContextDto;
-import com.viettelpost.fms.utm_integration.session.dto.UtmSessionStatusDto;
+import com.viettelpost.fms.utm_integration.session.dto.internal.UtmSessionContextDto;
+import com.viettelpost.fms.utm_integration.session.dto.internal.UtmSessionStatusDto;
 import com.viettelpost.fms.utm_integration.session.repository.UtmSessionRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Date;
-
 @Service
 @RequiredArgsConstructor
-public class UtmSessionServiceImpl implements UtmSessionService {
+@Slf4j
+@Transactional
+public class UtmSessionServiceImpl implements UtmSessionService, UtmSessionContextProvider {
 
     private final UtmSessionRepository utmSessionRepository;
-    private final UtmSessionClient utmSessionClient;
+    private final UtmTokenManager utmTokenManager;
+    private final MeterRegistry meterRegistry;
 
     @Override
-    @Transactional
     public UtmSessionStatusDto connect() throws InternalException {
-        UtmSessionEntity session = getOrCreateSession();
-        validateConnectTransition(session);
-
-        UtmSessionClientConnectResult connectResult = utmSessionClient.connect();
-        session.setSessionId(connectResult.sessionId());
-        session.setToken(connectResult.token());
-        session.setStatus(SessionStatus.CONNECTED);
-        session.setConnectedAt(connectResult.connectedAt());
-        session.setLastHeartbeatAt(connectResult.connectedAt());
-        session.setExpiresAt(connectResult.expiresAt());
-        session.setFailureReason(null);
-
-        return toStatusDto(utmSessionRepository.save(session));
+        log.info("utm_session_connect_start");
+        try {
+            UtmSessionEntity session = getOrCreateSession();
+            validateConnectTransition(session);
+            UtmSessionStatusDto status = toStatusDto(utmTokenManager.connect());
+            log.info("utm_session_connect_success dcsId={} status={}", status.dcsId(), status.status());
+            return status;
+        } catch (InternalException | RuntimeException ex) {
+            meterRegistry.counter("utm.session.failure.total").increment();
+            log.error("utm_session_connect_failure errorType={} errorCode={}",
+                    ex.getClass().getSimpleName(), ex instanceof InternalException ie ? ie.getErrorCode() : "UNEXPECTED_ERROR", ex);
+            throw ex;
+        }
     }
 
     @Override
-    @Transactional
+    public UtmSessionStatusDto refreshIfNeeded() {
+        log.info("utm_session_refresh_start");
+        try {
+            UtmSessionStatusDto status = toStatusDto(utmTokenManager.refreshIfNeeded());
+            log.info("utm_session_refresh_success dcsId={} status={}", status.dcsId(), status.status());
+            return status;
+        } catch (RuntimeException ex) {
+            meterRegistry.counter("utm.session.failure.total").increment();
+            log.error("utm_session_refresh_failure errorType={}", ex.getClass().getSimpleName(), ex);
+            throw ex;
+        }
+    }
+
+    @Override
     public UtmSessionStatusDto disconnect() throws InternalException {
-        UtmSessionEntity session = getOrCreateSession();
-        validateDisconnectTransition(session);
-        if (session.getSessionId() != null || session.getToken() != null) {
-            utmSessionClient.disconnect(new UtmSessionClientDisconnectRequest(session.getSessionId(), session.getToken()));
+        log.info("utm_session_disconnect_start");
+        try {
+            UtmSessionEntity session = getRequiredConnectedSession();
+            validateDisconnectTransition(session);
+            UtmSessionStatusDto status = toStatusDto(utmTokenManager.disconnect());
+            log.info("utm_session_disconnect_success dcsId={} status={}", status.dcsId(), status.status());
+            return status;
+        } catch (InternalException | RuntimeException ex) {
+            meterRegistry.counter("utm.session.failure.total").increment();
+            log.error("utm_session_disconnect_failure errorType={} errorCode={}",
+                    ex.getClass().getSimpleName(), ex instanceof InternalException ie ? ie.getErrorCode() : "UNEXPECTED_ERROR", ex);
+            throw ex;
         }
-
-        session.setStatus(SessionStatus.DISCONNECTED);
-        session.setToken(null);
-        session.setLastHeartbeatAt(null);
-        session.setExpiresAt(null);
-        session.setFailureReason(null);
-        if (session.getConnectedAt() == null) {
-            session.setConnectedAt(new Date());
-        }
-
-        return toStatusDto(utmSessionRepository.save(session));
     }
 
-    @Override
     @Transactional(readOnly = true)
+    @Override
     public UtmSessionStatusDto getCurrentStatus() {
         return utmSessionRepository.findTopByOrderByCreatedDateDesc()
                 .map(this::toStatusDto)
-                .orElseGet(() -> UtmSessionStatusDto.builder()
+                .orElse(UtmSessionStatusDto.builder()
                         .status(SessionStatus.DISCONNECTED)
+                        .active(Boolean.FALSE)
                         .build());
     }
 
-    @Override
     @Transactional(readOnly = true)
+    @Override
     public UtmSessionContextDto getCurrentSessionContext() {
-        return utmSessionRepository.findTopByOrderByCreatedDateDesc()
-                .map(this::toContextDto)
-                .orElseGet(() -> UtmSessionContextDto.builder()
-                        .status(SessionStatus.DISCONNECTED)
-                        .build());
+        return utmTokenManager.getCurrentSessionContext();
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public UtmSessionContextDto getRequiredSessionContext() throws InternalException {
+        UtmSessionContextDto sessionContext = getCurrentSessionContext();
+        if (!SessionStatus.CONNECTED.equals(sessionContext.status())) {
+            throw new InternalException(ErrorCode.ERROR_SESSION_NOT_CONNECTED);
+        }
+        return sessionContext;
     }
 
     private UtmSessionEntity getOrCreateSession() {
         return utmSessionRepository.findTopByOrderByCreatedDateDesc()
-                .orElseGet(() -> UtmSessionEntity.builder()
+                .orElse(UtmSessionEntity.builder()
                         .status(SessionStatus.DISCONNECTED)
+                        .active(Boolean.FALSE)
                         .build());
+    }
+
+    private UtmSessionEntity getRequiredConnectedSession() {
+        return utmSessionRepository.findTopByOrderByCreatedDateDesc()
+                .filter(s -> SessionStatus.CONNECTED.equals(s.getStatus()))
+                .orElseThrow(() -> new IllegalStateException("UTM session is not connected"));
     }
 
     private void validateConnectTransition(UtmSessionEntity session) throws InternalException {
@@ -101,23 +124,18 @@ public class UtmSessionServiceImpl implements UtmSessionService {
         }
     }
 
-    private UtmSessionStatusDto toStatusDto(UtmSessionEntity session) {
+    private UtmSessionStatusDto toStatusDto(UtmSessionEntity entity) {
         return UtmSessionStatusDto.builder()
-                .id(session.getId())
-                .sessionId(session.getSessionId())
-                .status(session.getStatus())
-                .connectedAt(session.getConnectedAt())
-                .lastHeartbeatAt(session.getLastHeartbeatAt())
-                .expiresAt(session.getExpiresAt())
-                .failureReason(session.getFailureReason())
-                .build();
-    }
-
-    private UtmSessionContextDto toContextDto(UtmSessionEntity session) {
-        return UtmSessionContextDto.builder()
-                .sessionId(session.getSessionId())
-                .token(session.getToken())
-                .status(session.getStatus())
+                .id(entity.getId())
+                .dcsId(entity.getDcsId())
+                .status(entity.getStatus())
+                .active(entity.getActive())
+                .connectedAt(entity.getConnectedAt())
+                .lastRefreshAt(entity.getLastRefreshAt())
+                .accessTokenExpiresAt(entity.getAccessTokenExpiresAt())
+                .refreshTokenExpiresAt(entity.getRefreshTokenExpiresAt())
+                .disconnectedAt(entity.getDisconnectedAt())
+                .failureReason(entity.getFailureReason())
                 .build();
     }
 }

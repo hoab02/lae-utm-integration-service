@@ -8,4 +8,10 @@ import java.util.Optional;
 public interface FlightApprovalRepository extends JpaRepository<FlightApprovalEntity, String> {
 
     Optional<FlightApprovalEntity> findByPlanId(String planId);
+
+    Optional<FlightApprovalEntity> findByUtmApplicationId(String utmApplicationId);
+
+    Optional<FlightApprovalEntity> findByUtmRequestId(String utmRequestId);
+
+    boolean existsByPlanId(String planId);
 }

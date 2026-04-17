@@ -1,6 +1,5 @@
 package com.viettelpost.fms.utm_integration.approval.domain;
 
-import com.viettelpost.fms.utm_integration.domain.Auditor;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -12,9 +11,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.hibernate.annotations.UuidGenerator;
 
-import java.util.Date;
+import java.time.Instant;
 
 @Getter
 @Setter
@@ -23,41 +21,45 @@ import java.util.Date;
 @Builder
 @Entity
 @Table(name = "flight_approval")
-public class FlightApprovalEntity extends Auditor {
+public class FlightApprovalEntity {
 
     @Id
-    @UuidGenerator
-    @Column(name = "id", nullable = false, updatable = false)
     private String id;
 
-    @Column(name = "plan_id", nullable = false, length = 100, unique = true)
+    @Column(name = "plan_id", nullable = false, unique = true, length = 100)
     private String planId;
 
     @Column(name = "mission_id", length = 100)
     private String missionId;
 
-    @Column(name = "drone_id", length = 100)
-    private String droneId;
-
-    @Column(name = "pilot_id", length = 100)
-    private String pilotId;
+    @Column(name = "utm_application_id", length = 100)
+    private String utmApplicationId;
 
     @Column(name = "utm_request_id", length = 100)
     private String utmRequestId;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false, length = 50)
+    @Column(name = "status", nullable = false, length = 30)
     private ApprovalStatus status;
 
-    @Column(name = "requested_at")
-    private Date requestedAt;
+    @Column(name = "reject_reason", columnDefinition = "TEXT")
+    private String rejectReason;
+
+    @Column(name = "submitted_at")
+    private Instant submittedAt;
 
     @Column(name = "approved_at")
-    private Date approvedAt;
+    private Instant approvedAt;
 
     @Column(name = "rejected_at")
-    private Date rejectedAt;
+    private Instant rejectedAt;
 
-    @Column(name = "reject_reason", length = 500)
-    private String rejectReason;
+    @Column(name = "cancelled_at")
+    private Instant cancelledAt;
+
+    @Column(name = "utm_request_payload", columnDefinition = "TEXT")
+    private String utmRequestPayload;
+
+    @Column(name = "utm_last_status_payload", columnDefinition = "TEXT")
+    private String utmLastStatusPayload;
 }

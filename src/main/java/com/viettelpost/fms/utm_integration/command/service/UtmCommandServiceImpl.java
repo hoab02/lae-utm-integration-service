@@ -6,6 +6,7 @@ import com.viettelpost.fms.utm_integration.command.dto.UtmCommandMessage;
 import com.viettelpost.fms.utm_integration.command.dto.UtmCommandStatusDto;
 import com.viettelpost.fms.utm_integration.command.repository.UtmCommandRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -13,6 +14,7 @@ import java.util.Date;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class UtmCommandServiceImpl implements UtmCommandService {
 
     private final UtmCommandRepository utmCommandRepository;
@@ -21,8 +23,14 @@ public class UtmCommandServiceImpl implements UtmCommandService {
     @Override
     @Transactional
     public UtmCommandStatusDto receive(UtmCommandMessage message) {
+        log.info("command_receive_start commandId={} missionId={} commandType={}",
+                message.getCommandId(), message.getMissionId(), message.getCommandType());
         return utmCommandRepository.findByCommandId(message.getCommandId())
-                .map(this::toDto)
+                .map(existing -> {
+                    log.info("command_receive_duplicate commandId={} missionId={} status={}",
+                            existing.getCommandId(), existing.getMissionId(), existing.getStatus());
+                    return toDto(existing);
+                })
                 .orElseGet(() -> createCommand(message));
     }
 
@@ -38,6 +46,8 @@ public class UtmCommandServiceImpl implements UtmCommandService {
                 .build();
 
         UtmCommandStatusDto status = toDto(utmCommandRepository.save(command));
+        log.info("command_receive_success commandId={} missionId={} status={}",
+                status.getCommandId(), status.getMissionId(), status.getStatus());
         utmCommandAckService.prepareAck(status);
         return status;
     }

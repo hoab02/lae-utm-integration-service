@@ -5,6 +5,7 @@ import com.viettelpost.fms.common.i18n.I18nMessageService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.tomcat.util.http.fileupload.impl.FileSizeLimitExceededException;
 import org.apache.tomcat.util.http.fileupload.impl.SizeException;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.context.support.DefaultMessageSourceResolvable;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
@@ -33,25 +35,27 @@ public class RestControllerExceptionHandler extends ResponseEntityExceptionHandl
     @Autowired
     private I18nMessageService i18nMessageService;
 
-    /**
-     * Handle the Access Denied Exception
-     *
-     * @param ex
-     * @return
-     */
     @ExceptionHandler(AccessDeniedException.class)
-    public final ResponseEntity<Object> handleAccessDeniedException(AccessDeniedException ex) {
-        log.error("", ex);
+    public final ResponseEntity<Object> handleAccessDeniedException(AccessDeniedException ex, WebRequest request) {
+        log.error("request_failed type={} errorCode={} uri={} traceId={}",
+                ex.getClass().getSimpleName(),
+                "ACCESS_DENIED",
+                getRequestUri(request),
+                MDC.get("traceId"),
+                ex);
         String msg = i18nMessageService.translate("error.permission");
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(msg);
     }
 
-    @ExceptionHandler({
-            InternalException.class
-    })
-    public ResponseEntity<Object> handleInternalException(InternalException ex) {
+    @ExceptionHandler({InternalException.class})
+    public ResponseEntity<Object> handleInternalException(InternalException ex, WebRequest request) {
         String msg = i18nMessageService.translate(ex.getMessage(), LocaleContextHolder.getLocale(), ex.getArgs());
-        log.error("", ex);
+        log.error("request_failed type={} errorCode={} uri={} traceId={}",
+                ex.getClass().getSimpleName(),
+                ex.getErrorCode(),
+                getRequestUri(request),
+                MDC.get("traceId"),
+                ex);
         BaseErrorDto error = BaseErrorDto.builder()
                 .timestamp(new Date())
                 .fields(ex.getFields())
@@ -62,17 +66,14 @@ public class RestControllerExceptionHandler extends ResponseEntityExceptionHandl
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
     }
 
-    /**
-     * Handle the Multipart Exception
-     *
-     * @param ex
-     * @return
-     */
-    @ExceptionHandler({
-            MultipartException.class,
-    })
-    public ResponseEntity<Object> handleMultipartException(Exception ex) {
-        log.error("", ex);
+    @ExceptionHandler({MultipartException.class})
+    public ResponseEntity<Object> handleMultipartException(Exception ex, WebRequest request) {
+        log.error("request_failed type={} errorCode={} uri={} traceId={}",
+                ex.getClass().getSimpleName(),
+                "MULTIPART_ERROR",
+                getRequestUri(request),
+                MDC.get("traceId"),
+                ex);
         BaseErrorDto error = BaseErrorDto.builder()
                 .timestamp(new Date())
                 .errorMessage(ex.getMessage())
@@ -81,16 +82,15 @@ public class RestControllerExceptionHandler extends ResponseEntityExceptionHandl
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
     }
 
-    /**
-     * Handle the Internal Server Error
-     *
-     * @param e
-     * @return
-     */
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-    public ResponseEntity<Object> handleException(Exception e) {
-        log.error("", e);
+    public ResponseEntity<Object> handleGenericException(Exception e, WebRequest request) {
+        log.error("request_failed type={} errorCode={} uri={} traceId={}",
+                e.getClass().getSimpleName(),
+                "UNEXPECTED_ERROR",
+                getRequestUri(request),
+                MDC.get("traceId"),
+                e);
         BaseErrorDto error = BaseErrorDto.builder()
                 .timestamp(new Date())
                 .errorMessage("Server Error")
@@ -98,11 +98,14 @@ public class RestControllerExceptionHandler extends ResponseEntityExceptionHandl
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
     }
 
-    @ExceptionHandler({
-            SizeException.class
-    })
-    public ResponseEntity<Object> handleFileSizeLimitException(FileSizeLimitExceededException ex) {
-        log.error("", ex);
+    @ExceptionHandler({SizeException.class})
+    public ResponseEntity<Object> handleFileSizeLimitException(FileSizeLimitExceededException ex, WebRequest request) {
+        log.error("request_failed type={} errorCode={} uri={} traceId={}",
+                ex.getClass().getSimpleName(),
+                "FILE_SIZE_LIMIT",
+                getRequestUri(request),
+                MDC.get("traceId"),
+                ex);
         BaseErrorDto error = BaseErrorDto.builder()
                 .timestamp(new Date())
                 .errorMessage(ex.getMessage())
@@ -116,7 +119,12 @@ public class RestControllerExceptionHandler extends ResponseEntityExceptionHandl
                                                                   HttpHeaders headers,
                                                                   HttpStatusCode status,
                                                                   WebRequest request) {
-        log.error("", ex);
+        log.error("request_failed type={} errorCode={} uri={} traceId={}",
+                ex.getClass().getSimpleName(),
+                "VALIDATION_ERROR",
+                getRequestUri(request),
+                MDC.get("traceId"),
+                ex);
         List<String> errors = ex.getBindingResult()
                 .getFieldErrors()
                 .stream()
@@ -135,7 +143,12 @@ public class RestControllerExceptionHandler extends ResponseEntityExceptionHandl
                                                                           HttpHeaders headers,
                                                                           HttpStatusCode status,
                                                                           WebRequest request) {
-        log.error("", ex);
+        log.error("request_failed type={} errorCode={} uri={} traceId={}",
+                ex.getClass().getSimpleName(),
+                "MISSING_PARAMETER",
+                getRequestUri(request),
+                MDC.get("traceId"),
+                ex);
         BaseErrorDto error = BaseErrorDto.builder()
                 .timestamp(new Date())
                 .errorMessage(ex.getMessage())
@@ -143,4 +156,10 @@ public class RestControllerExceptionHandler extends ResponseEntityExceptionHandl
         return ResponseEntity.badRequest().body(error);
     }
 
+    private String getRequestUri(WebRequest request) {
+        if (request instanceof ServletWebRequest servletWebRequest) {
+            return servletWebRequest.getRequest().getRequestURI();
+        }
+        return "unknown";
+    }
 }

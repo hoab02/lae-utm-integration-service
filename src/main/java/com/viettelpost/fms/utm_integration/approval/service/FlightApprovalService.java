@@ -1,14 +1,15 @@
 package com.viettelpost.fms.utm_integration.approval.service;
 
-import com.viettelpost.fms.common.exception.I18nException;
-import com.viettelpost.fms.utm_integration.approval.dto.FlightApprovalStatusDto;
-import com.viettelpost.fms.utm_integration.approval.dto.FlightApprovalSubmitRequest;
+import com.viettelpost.fms.utm_integration.approval.dto.api.FlightApprovalStatusResponse;
+import com.viettelpost.fms.utm_integration.approval.dto.api.FlightApprovalSubmitResponse;
+import com.viettelpost.fms.utm_integration.approval.dto.api.UtmFlightApprovalRequest;
+import com.viettelpost.fms.utm_integration.approval.dto.utm.inbound.UtmFlightApprovalStatusMessage;
 
 public interface FlightApprovalService {
 
-    FlightApprovalStatusDto submit(FlightApprovalSubmitRequest request) throws I18nException;
+    FlightApprovalSubmitResponse submit(UtmFlightApprovalRequest request);
 
-    FlightApprovalStatusDto getByPlanId(String planId) throws I18nException;
+    FlightApprovalStatusResponse getByPlanId(String planId);
 
-    FlightApprovalStatusDto markApproved(String planId) throws I18nException;
+    void handleUtmStatus(UtmFlightApprovalStatusMessage message);
 }

@@ -1,147 +1,268 @@
 package com.viettelpost.fms.utm_integration.approval.service;
 
-import com.viettelpost.fms.common.exception.I18nException;
-import com.viettelpost.fms.utm_integration.approval.client.UtmApprovalClient;
+import com.viettelpost.fms.utm_integration.approval.client.UtmFlightApprovalClient;
 import com.viettelpost.fms.utm_integration.approval.domain.ApprovalStatus;
 import com.viettelpost.fms.utm_integration.approval.domain.FlightApprovalEntity;
-import com.viettelpost.fms.utm_integration.approval.dto.FlightApprovalStatusDto;
-import com.viettelpost.fms.utm_integration.approval.dto.FlightApprovalSubmitRequest;
-import com.viettelpost.fms.utm_integration.approval.dto.UtmApprovalSubmissionRequest;
-import com.viettelpost.fms.utm_integration.approval.dto.UtmApprovalSubmissionResult;
+import com.viettelpost.fms.utm_integration.approval.dto.api.FlightApprovalStatusResponse;
+import com.viettelpost.fms.utm_integration.approval.dto.api.FlightApprovalSubmitResponse;
+import com.viettelpost.fms.utm_integration.approval.dto.api.UtmFlightApprovalRequest;
+import com.viettelpost.fms.utm_integration.approval.dto.kafka.FlightApprovalStatusEvent;
+import com.viettelpost.fms.utm_integration.approval.dto.utm.inbound.UtmFlightApprovalStatusMessage;
+import com.viettelpost.fms.utm_integration.approval.dto.utm.outbound.UtmFlightApprovalSubmitRequest;
+import com.viettelpost.fms.utm_integration.approval.dto.utm.outbound.UtmFlightApprovalSubmitResponse;
+import com.viettelpost.fms.utm_integration.approval.kafka.FlightApprovalStatusKafkaPublisher;
+import com.viettelpost.fms.utm_integration.approval.mapper.FlightApprovalUtmMapper;
 import com.viettelpost.fms.utm_integration.approval.repository.FlightApprovalRepository;
-import com.viettelpost.fms.utm_integration.enumeration.ErrorCode;
-import com.viettelpost.fms.utm_integration.exception.InternalException;
-import com.viettelpost.fms.utm_integration.registry.domain.RegistrationStatus;
-import com.viettelpost.fms.utm_integration.registry.service.DroneRegistrationService;
-import com.viettelpost.fms.utm_integration.registry.service.PilotRegistrationService;
-import com.viettelpost.fms.utm_integration.session.domain.SessionStatus;
-import com.viettelpost.fms.utm_integration.session.dto.UtmSessionContextDto;
-import com.viettelpost.fms.utm_integration.session.service.UtmSessionService;
+import com.viettelpost.fms.utm_integration.approval.support.JsonUtils;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
-import java.util.Date;
+import java.time.Instant;
+import java.util.Optional;
+import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class FlightApprovalServiceImpl implements FlightApprovalService {
 
-    private final FlightApprovalRepository flightApprovalRepository;
-    private final UtmApprovalClient utmApprovalClient;
-    private final UtmSessionService utmSessionService;
-    private final PilotRegistrationService pilotRegistrationService;
-    private final DroneRegistrationService droneRegistrationService;
+    private final FlightApprovalRepository repository;
+    private final FlightApprovalUtmMapper mapper;
+    private final ApprovalTokenProvider approvalTokenProvider;
+    private final UtmFlightApprovalClient utmFlightApprovalClient;
+    private final FlightApprovalStatusKafkaPublisher kafkaPublisher;
+    private final JsonUtils jsonUtils;
 
     @Override
     @Transactional
-    public FlightApprovalStatusDto submit(FlightApprovalSubmitRequest request) throws InternalException {
-        UtmSessionContextDto session = requireConnectedSession();
-        FlightApprovalEntity approval = flightApprovalRepository.findByPlanId(request.getPlanId())
-                .orElseGet(() -> FlightApprovalEntity.builder()
-                        .planId(request.getPlanId())
-                        .status(ApprovalStatus.DRAFT)
-                        .build());
+    public FlightApprovalSubmitResponse submit(UtmFlightApprovalRequest request) {
+        String planId = extractPlanId(request);
 
-        validateSubmitTransition(approval);
-        validateRegistryApprovalPrerequisites(request);
+        if (repository.existsByPlanId(planId)) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Flight approval already exists for planId=" + planId
+            );
+        }
 
-        approval.setMissionId(request.getMissionId());
-        approval.setDroneId(request.getDroneId());
-        approval.setPilotId(request.getPilotId());
-        approval.setApprovedAt(null);
-        approval.setRejectedAt(null);
-        approval.setRejectReason(null);
+        UtmFlightApprovalSubmitRequest utmRequest = mapper.toUtmSubmitRequest(request);
+        String authorizationHeaderValue = approvalTokenProvider.getAuthorizationHeaderValue();
 
-        UtmApprovalSubmissionResult submitResult = utmApprovalClient.submit(UtmApprovalSubmissionRequest.builder()
-                .sessionId(session.sessionId())
-                .token(session.token())
-                .planId(request.getPlanId())
-                .missionId(request.getMissionId())
-                .droneId(request.getDroneId())
-                .pilotId(request.getPilotId())
-                .build());
+        UtmFlightApprovalSubmitResponse utmResponse =
+                utmFlightApprovalClient.submit(utmRequest, authorizationHeaderValue);
 
-        approval.setUtmRequestId(submitResult.utmRequestId());
-        approval.setRequestedAt(submitResult.requestedAt());
-        approval.setStatus(ApprovalStatus.SUBMITTED);
+        Instant now = Instant.now();
 
-        return toDto(flightApprovalRepository.save(approval));
+        FlightApprovalEntity entity = FlightApprovalEntity.builder()
+                .id(UUID.randomUUID().toString())
+                .planId(planId)
+                .missionId(null)
+                .utmApplicationId(utmResponse != null ? utmResponse.getApplicationId() : null)
+                .utmRequestId(utmResponse != null ? utmResponse.getRequestId() : null)
+                .status(ApprovalStatus.PENDING)
+                .submittedAt(now)
+                .utmRequestPayload(jsonUtils.toJson(utmRequest))
+                .build();
+
+        repository.save(entity);
+        kafkaPublisher.publish(toKafkaEvent(entity));
+
+        log.info("approval_submit_success planId={} utmApplicationId={} utmRequestId={}",
+                entity.getPlanId(), entity.getUtmApplicationId(), entity.getUtmRequestId());
+
+        return FlightApprovalSubmitResponse.builder()
+                .id(entity.getId())
+                .planId(entity.getPlanId())
+                .missionId(entity.getMissionId())
+                .utmApplicationId(entity.getUtmApplicationId())
+                .utmRequestId(entity.getUtmRequestId())
+                .status(entity.getStatus())
+                .submittedAt(entity.getSubmittedAt())
+                .build();
     }
 
     @Override
     @Transactional(readOnly = true)
-    public FlightApprovalStatusDto getByPlanId(String planId) throws InternalException {
-        return flightApprovalRepository.findByPlanId(planId)
-                .map(this::toDto)
-                .orElseThrow(() -> new InternalException(ErrorCode.ERROR_APPROVAL_NOT_FOUND));
+    public FlightApprovalStatusResponse getByPlanId(String planId) {
+        FlightApprovalEntity entity = repository.findByPlanId(planId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Flight approval not found for planId=" + planId
+                ));
+
+        return toStatusResponse(entity);
     }
 
     @Override
     @Transactional
-    public FlightApprovalStatusDto markApproved(String planId) throws InternalException {
-        FlightApprovalEntity approval = flightApprovalRepository.findByPlanId(planId)
-                .orElseThrow(() -> new InternalException(ErrorCode.ERROR_APPROVAL_NOT_FOUND));
+    public void handleUtmStatus(UtmFlightApprovalStatusMessage message) {
+        FlightApprovalEntity entity = findTargetEntity(message)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Flight approval not found for inbound status message"
+                ));
 
-        validateApproveTransition(approval);
+        ApprovalStatus newStatus = mapInboundStatus(message.getStatus());
+        validateTransition(entity.getStatus(), newStatus);
 
-        approval.setStatus(ApprovalStatus.APPROVED);
-        approval.setApprovedAt(new Date());
-        approval.setRejectedAt(null);
-        approval.setRejectReason(null);
+        entity.setUtmLastStatusPayload(jsonUtils.toJson(message));
 
-        return toDto(flightApprovalRepository.save(approval));
-    }
-
-    private UtmSessionContextDto requireConnectedSession() throws InternalException {
-        UtmSessionContextDto sessionContext = utmSessionService.getCurrentSessionContext();
-        if (!SessionStatus.CONNECTED.equals(sessionContext.status())) {
-            throw new InternalException(ErrorCode.ERROR_SESSION_NOT_CONNECTED);
+        if (message.getApplicationId() != null && entity.getUtmApplicationId() == null) {
+            entity.setUtmApplicationId(message.getApplicationId());
         }
-        return sessionContext;
-    }
 
-    private void validateSubmitTransition(FlightApprovalEntity approval) throws InternalException {
-        if (ApprovalStatus.SUBMITTED.equals(approval.getStatus())
-                || ApprovalStatus.APPROVED.equals(approval.getStatus())) {
-            throw new InternalException(ErrorCode.ERROR_REQUEST_INVALID);
+        if (message.getRequestId() != null && entity.getUtmRequestId() == null) {
+            entity.setUtmRequestId(message.getRequestId());
         }
+
+        applyStatus(entity, newStatus, message.getReason());
+        repository.save(entity);
+        kafkaPublisher.publish(toKafkaEvent(entity));
+
+        log.info("approval_status_updated planId={} status={} utmApplicationId={} utmRequestId={}",
+                entity.getPlanId(), entity.getStatus(), entity.getUtmApplicationId(), entity.getUtmRequestId());
     }
 
-    private void validateRegistryApprovalPrerequisites(FlightApprovalSubmitRequest request) throws InternalException {
-        try {
-            if (!RegistrationStatus.APPROVED.equals(pilotRegistrationService.getByPilotId(request.getPilotId()).getStatus())
-                    || !RegistrationStatus.APPROVED.equals(droneRegistrationService.getByDroneId(request.getDroneId()).getStatus())) {
-                throw new InternalException(ErrorCode.ERROR_REQUEST_INVALID);
+    private String extractPlanId(UtmFlightApprovalRequest request) {
+        if (request == null
+                || request.getApplication() == null
+                || request.getApplication().getId() == null
+                || request.getApplication().getId().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "application.id is required");
+        }
+        return request.getApplication().getId();
+    }
+
+    private Optional<FlightApprovalEntity> findTargetEntity(UtmFlightApprovalStatusMessage message) {
+        if (message.getPlanId() != null && !message.getPlanId().isBlank()) {
+            Optional<FlightApprovalEntity> byPlanId = repository.findByPlanId(message.getPlanId());
+            if (byPlanId.isPresent()) {
+                return byPlanId;
             }
-        } catch (I18nException ex) {
-            if (ex instanceof InternalException internalException
-                    && ErrorCode.ERROR_REQUEST_INVALID.name().equals(internalException.getErrorCode())) {
-                throw internalException;
+        }
+
+        if (message.getApplicationId() != null && !message.getApplicationId().isBlank()) {
+            Optional<FlightApprovalEntity> byApplicationId =
+                    repository.findByUtmApplicationId(message.getApplicationId());
+            if (byApplicationId.isPresent()) {
+                return byApplicationId;
             }
-            throw new InternalException(ErrorCode.ERROR_REQUEST_INVALID);
+        }
+
+        if (message.getRequestId() != null && !message.getRequestId().isBlank()) {
+            return repository.findByUtmRequestId(message.getRequestId());
+        }
+
+        return Optional.empty();
+    }
+
+    private ApprovalStatus mapInboundStatus(String rawStatus) {
+        if (rawStatus == null || rawStatus.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Inbound status is blank");
+        }
+
+        String normalized = rawStatus.trim().toUpperCase();
+
+        return switch (normalized) {
+            case "SUBMITTED", "PENDING" -> ApprovalStatus.PENDING;
+            case "APPROVED", "ACCEPTED" -> ApprovalStatus.APPROVED;
+            case "REJECTED", "DENIED" -> ApprovalStatus.REJECTED;
+            case "CANCELLED", "CANCELED" -> ApprovalStatus.CANCELLED;
+            default -> throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Unsupported inbound status: " + rawStatus
+            );
+        };
+    }
+
+    private void validateTransition(ApprovalStatus current, ApprovalStatus target) {
+        if (current == ApprovalStatus.PENDING
+                && (target == ApprovalStatus.PENDING
+                || target == ApprovalStatus.APPROVED
+                || target == ApprovalStatus.REJECTED
+                || target == ApprovalStatus.CANCELLED)) {
+            return;
+        }
+
+        if ((current == ApprovalStatus.REJECTED || current == ApprovalStatus.CANCELLED)
+                && target == ApprovalStatus.PENDING) {
+            return;
+        }
+
+        throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "Invalid approval status transition from " + current + " to " + target
+        );
+    }
+
+    private void applyStatus(FlightApprovalEntity entity, ApprovalStatus status, String reason) {
+        entity.setStatus(status);
+
+        if (status == ApprovalStatus.PENDING) {
+            if (entity.getSubmittedAt() == null) {
+                entity.setSubmittedAt(Instant.now());
+            }
+            entity.setRejectReason(null);
+            return;
+        }
+
+        if (status == ApprovalStatus.APPROVED) {
+            entity.setApprovedAt(Instant.now());
+            entity.setRejectedAt(null);
+            entity.setCancelledAt(null);
+            entity.setRejectReason(null);
+            return;
+        }
+
+        if (status == ApprovalStatus.REJECTED) {
+            entity.setRejectedAt(Instant.now());
+            entity.setApprovedAt(null);
+            entity.setCancelledAt(null);
+            entity.setRejectReason(reason);
+            return;
+        }
+
+        if (status == ApprovalStatus.CANCELLED) {
+            entity.setCancelledAt(Instant.now());
+            entity.setApprovedAt(null);
+            entity.setRejectedAt(null);
+            entity.setRejectReason(reason);
         }
     }
 
-    private void validateApproveTransition(FlightApprovalEntity approval) throws InternalException {
-        if (!ApprovalStatus.SUBMITTED.equals(approval.getStatus())) {
-            throw new InternalException(ErrorCode.ERROR_REQUEST_INVALID);
-        }
+    private FlightApprovalStatusResponse toStatusResponse(FlightApprovalEntity entity) {
+        return FlightApprovalStatusResponse.builder()
+                .id(entity.getId())
+                .planId(entity.getPlanId())
+                .missionId(entity.getMissionId())
+                .utmApplicationId(entity.getUtmApplicationId())
+                .utmRequestId(entity.getUtmRequestId())
+                .status(entity.getStatus())
+                .rejectReason(entity.getRejectReason())
+                .submittedAt(entity.getSubmittedAt())
+                .approvedAt(entity.getApprovedAt())
+                .rejectedAt(entity.getRejectedAt())
+                .cancelledAt(entity.getCancelledAt())
+                .build();
     }
 
-    private FlightApprovalStatusDto toDto(FlightApprovalEntity approval) {
-        return FlightApprovalStatusDto.builder()
-                .id(approval.getId())
-                .planId(approval.getPlanId())
-                .missionId(approval.getMissionId())
-                .droneId(approval.getDroneId())
-                .pilotId(approval.getPilotId())
-                .utmRequestId(approval.getUtmRequestId())
-                .status(approval.getStatus())
-                .requestedAt(approval.getRequestedAt())
-                .approvedAt(approval.getApprovedAt())
-                .rejectedAt(approval.getRejectedAt())
-                .rejectReason(approval.getRejectReason())
+    private FlightApprovalStatusEvent toKafkaEvent(FlightApprovalEntity entity) {
+        return FlightApprovalStatusEvent.builder()
+                .flightTripCode(entity.getPlanId())
+                .missionId(entity.getMissionId())
+                .utmApplicationId(entity.getUtmApplicationId())
+                .utmRequestId(entity.getUtmRequestId())
+                .status(entity.getStatus())
+                .reason(entity.getRejectReason())
+                .submittedAt(entity.getSubmittedAt())
+                .approvedAt(entity.getApprovedAt())
+                .rejectedAt(entity.getRejectedAt())
+                .cancelledAt(entity.getCancelledAt())
+                .eventTime(Instant.now())
                 .build();
     }
 }

@@ -1,46 +1,55 @@
 package com.viettelpost.fms.utm_integration.telemetry.service;
 
-import com.viettelpost.fms.utm_integration.enumeration.ErrorCode;
-import com.viettelpost.fms.utm_integration.exception.InternalException;
-import com.viettelpost.fms.utm_integration.session.domain.SessionStatus;
-import com.viettelpost.fms.utm_integration.session.dto.UtmSessionContextDto;
-import com.viettelpost.fms.utm_integration.session.service.UtmSessionService;
 import com.viettelpost.fms.utm_integration.telemetry.client.UtmTelemetryPublisher;
 import com.viettelpost.fms.utm_integration.telemetry.dto.TelemetryMessage;
-import com.viettelpost.fms.utm_integration.telemetry.dto.UtmTelemetryPublishRequest;
+import io.micrometer.core.instrument.MeterRegistry;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.util.Date;
+import java.util.Set;
+import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class TelemetryForwardServiceImpl implements TelemetryForwardService {
 
     private final UtmTelemetryPublisher utmTelemetryPublisher;
-    private final UtmSessionService utmSessionService;
+    private final Validator validator;
+    private final MeterRegistry meterRegistry;
 
     @Override
-    public void forward(TelemetryMessage message) throws InternalException {
-        UtmSessionContextDto session = requireConnectedSession();
-        utmTelemetryPublisher.publish(UtmTelemetryPublishRequest.builder()
-                .sessionId(session.sessionId())
-                .token(session.token())
-                .missionId(message.getMissionId())
-                .droneId(message.getDroneId())
-                .latitude(message.getLatitude())
-                .longitude(message.getLongitude())
-                .altitude(message.getAltitude())
-                .speed(message.getSpeed())
-                .recordedAt(message.getRecordedAt() != null ? message.getRecordedAt() : new Date())
-                .build());
+    public void forward(TelemetryMessage message) {
+        validate(message);
+
+        utmTelemetryPublisher.publish(message);
+
+        meterRegistry.counter("utm.telemetry.forward.success").increment();
+
+        log.info("telemetry_forward_success droneId={} tenantId={} recordedAt={}",
+                message.getDroneId(),
+                message.getTenantId(),
+                message.getRecordedAt());
     }
 
-    private UtmSessionContextDto requireConnectedSession() throws InternalException {
-        UtmSessionContextDto sessionContext = utmSessionService.getCurrentSessionContext();
-        if (!SessionStatus.CONNECTED.equals(sessionContext.status())) {
-            throw new InternalException(ErrorCode.ERROR_SESSION_NOT_CONNECTED);
+    private void validate(TelemetryMessage message) {
+        if (message == null) {
+            meterRegistry.counter("utm.telemetry.forward.invalid").increment();
+            throw new IllegalArgumentException("Telemetry message must not be null");
         }
-        return sessionContext;
+
+        Set<ConstraintViolation<TelemetryMessage>> violations = validator.validate(message);
+        if (!violations.isEmpty()) {
+            meterRegistry.counter("utm.telemetry.forward.invalid").increment();
+
+            String errorMessage = violations.stream()
+                    .map(ConstraintViolation::getMessage)
+                    .collect(Collectors.joining(", "));
+
+            throw new IllegalArgumentException("Invalid telemetry message: " + errorMessage);
+        }
     }
 }

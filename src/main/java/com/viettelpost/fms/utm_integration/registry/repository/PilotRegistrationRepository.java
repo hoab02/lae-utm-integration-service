@@ -7,5 +7,9 @@ import java.util.Optional;
 
 public interface PilotRegistrationRepository extends JpaRepository<PilotRegistrationEntity, String> {
 
-    Optional<PilotRegistrationEntity> findByPilotId(String pilotId);
+    Optional<PilotRegistrationEntity> findByUtmPilotId(String utmPilotId);
+
+    Optional<PilotRegistrationEntity> findByPersonalIdNumber(String personalIdNumber);
+
+    Optional<PilotRegistrationEntity> findByLicenseNumber(String licenseNumber);
 }

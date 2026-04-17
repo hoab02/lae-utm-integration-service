@@ -7,5 +7,9 @@ import java.util.Optional;
 
 public interface DroneRegistrationRepository extends JpaRepository<DroneRegistrationEntity, String> {
 
-    Optional<DroneRegistrationEntity> findByDroneId(String droneId);
+    Optional<DroneRegistrationEntity> findByUtmDroneId(String utmDroneId);
+
+    Optional<DroneRegistrationEntity> findBySerialNumber(String serialNumber);
+
+    Optional<DroneRegistrationEntity> findByRegistrationId(String registrationId);
 }

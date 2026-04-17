@@ -1,0 +1,97 @@
+variables:
+  namespace: "fms"
+  image: "${CI_REGISTRY}/quanlyxe/${CI_PROJECT_NAME}:${CI_COMMIT_TAG}_${CI_COMMIT_SHORT_SHA}"
+  deployment: "fms-utm-integration-service"
+
+stages:
+  - createfolder
+  - trigger
+  - buildandpush
+#  - deployk8s
+  - sonar
+
+create_folder:
+  stage: createfolder
+  allow_failure: true
+  variables:
+    GIT_STRATEGY: none
+  tags:
+    - dev-camai-stms2
+  script:
+    - cd /data/gitlab-runner/fms
+    - rm -rf ${CI_PROJECT_NAME}.bk || FAILED=true
+    - mv -f ${CI_PROJECT_NAME} ${CI_PROJECT_NAME}.bk || FAILED=true
+    - mkdir ${CI_PROJECT_NAME}
+    - mkdir -p ${CI_PROJECT_NAME}/fms-parent
+    - mkdir -p ${CI_PROJECT_NAME}/fms-common
+  only:
+    - /^dev_\d{2}\.\d{2}\.\d{4}_v\d+$/
+    - /^prod_\d{2}\.\d{2}\.\d{4}_v\d+$/
+
+trigger_drone_parent:
+  stage: trigger
+  variables:
+    tmp: $CI_PROJECT_NAME
+  trigger:
+    project: 'drone/fms-parent'
+    branch: 'develop'
+    strategy: depend
+  only:
+    - /^dev_\d{2}\.\d{2}\.\d{4}_v\d+$/
+    - /^prod_\d{2}\.\d{2}\.\d{4}_v\d+$/
+
+trigger_drone_common:
+  stage: trigger
+  variables:
+    tmp: $CI_PROJECT_NAME
+  trigger:
+    project: 'drone/fms-common'
+    branch: 'develop'
+    strategy: depend
+  only:
+    - /^dev_\d{2}\.\d{2}\.\d{4}_v\d+$/
+    - /^prod_\d{2}\.\d{2}\.\d{4}_v\d+$/
+
+buildandpush:
+  stage: buildandpush
+  before_script:
+  - docker login -u ${CI_REGISTRY_USER} -p ${CI_REGISTRY_PASSWORD} $CI_REGISTRY
+  allow_failure: false
+  variables:
+    GIT_STRATEGY: clone
+  tags:
+    - dev-camai-stms2
+  script:
+    - cp -Rf * /data/gitlab-runner/fms/${CI_PROJECT_NAME}
+    - cd /data/gitlab-runner/fms/${CI_PROJECT_NAME}
+    - docker build --network host -t "$image" .
+    - docker push "$image"
+  only:
+    - /^dev_\d{2}\.\d{2}\.\d{4}_v\d+$/
+    - /^prod_\d{2}\.\d{2}\.\d{4}_v\d+$/
+
+sonar:
+  stage: sonar
+  allow_failure: false
+  variables:
+    GIT_STRATEGY: none
+  tags:
+    - dev-camai-stms2
+  script:
+    - DOCKER_BUILDKIT=1 docker run -u 997:997 --rm --network host -v `pwd`:/app --workdir="/app"  sonarsource/sonar-scanner-cli:5.0.1 sonar-scanner -X $SONAR_SCANNER_OPTS -Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.login="$SONAR_TOKEN" -Dsonar.java.binaries="." -Dsonar.sources="./src" -Dsonar.projectKey="${CI_PROJECT_NAME}" -Dsonar.projectName="$CI_PROJECT_NAME" -Dsonar.projectVersion="${CI_COMMIT_TAG}_${CI_COMMIT_SHORT_SHA}";
+  only:
+    - /^dev_\d{2}\.\d{2}\.\d{4}_v\d+$/
+    - /^prod_\d{2}\.\d{2}\.\d{4}_v\d+$/
+
+#deployk8s:
+#  stage: deployk8s
+#  variables:
+#    GIT_STRATEGY: none
+#  allow_failure: true
+#  tags:
+#    - dev-k8s-node-1
+#  script:
+#    - kubectl set image deployment/"$deployment" "$deployment"="$image" -n "$namespace"
+#  only:
+#    - /^dev_\d{2}\.\d{2}\.\d{4}_v\d+$/
+#    - /^prod_\d{2}\.\d{2}\.\d{4}_v\d+$/

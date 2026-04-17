@@ -1,95 +1,150 @@
 package com.viettelpost.fms.utm_integration.registry.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.viettelpost.fms.utm_integration.enumeration.ErrorCode;
 import com.viettelpost.fms.utm_integration.exception.InternalException;
-import com.viettelpost.fms.utm_integration.registry.client.PilotRegistrySubmissionRequest;
-import com.viettelpost.fms.utm_integration.registry.client.PilotRegistrySubmissionResult;
+import com.viettelpost.fms.utm_integration.registry.client.PilotRegistryRecord;
+import com.viettelpost.fms.utm_integration.registry.client.PilotRegistrySearchRequest;
+import com.viettelpost.fms.utm_integration.registry.client.PilotRegistryUpsertRequest;
 import com.viettelpost.fms.utm_integration.registry.client.UtmPilotRegistryClient;
 import com.viettelpost.fms.utm_integration.registry.domain.PilotRegistrationEntity;
 import com.viettelpost.fms.utm_integration.registry.domain.RegistrationStatus;
+import com.viettelpost.fms.utm_integration.registry.domain.RegistrationSyncStatus;
 import com.viettelpost.fms.utm_integration.registry.dto.PilotRegistrationStatusDto;
 import com.viettelpost.fms.utm_integration.registry.dto.PilotRegistrationSubmitRequest;
+import com.viettelpost.fms.utm_integration.registry.kafka.PilotRegistrationResultKafkaPublisher;
 import com.viettelpost.fms.utm_integration.registry.repository.PilotRegistrationRepository;
-import com.viettelpost.fms.utm_integration.session.domain.SessionStatus;
-import com.viettelpost.fms.utm_integration.session.dto.UtmSessionContextDto;
-import com.viettelpost.fms.utm_integration.session.service.UtmSessionService;
+import com.viettelpost.fms.utm_integration.session.dto.internal.UtmSessionContextDto;
+import com.viettelpost.fms.utm_integration.session.service.UtmSessionContextProvider;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Date;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class PilotRegistrationServiceImpl implements PilotRegistrationService {
-
     private final PilotRegistrationRepository pilotRegistrationRepository;
     private final UtmPilotRegistryClient utmPilotRegistryClient;
-    private final UtmSessionService utmSessionService;
+    private final UtmSessionContextProvider utmSessionContextProvider;
+    private final PilotRegistrationMapper pilotRegistrationMapper;
+    private final PilotRegistrationResultKafkaPublisher publisher;
+    private final ObjectMapper objectMapper;
 
     @Override
-    @Transactional
     public PilotRegistrationStatusDto submit(PilotRegistrationSubmitRequest request) throws InternalException {
-        UtmSessionContextDto session = requireConnectedSession();
-        PilotRegistrationEntity registration = pilotRegistrationRepository.findByPilotId(request.getPilotId())
-                .orElseGet(() -> PilotRegistrationEntity.builder()
-                        .pilotId(request.getPilotId())
-                        .status(RegistrationStatus.DRAFT)
-                        .build());
-
-        validateSubmitTransition(registration);
-
-        PilotRegistrySubmissionResult submitResult = utmPilotRegistryClient.submit(new PilotRegistrySubmissionRequest(
-                session.sessionId(),
-                session.token(),
-                request.getPilotId()
-        ));
-
-        registration.setUtmPilotId(submitResult.utmPilotId());
-        registration.setStatus(RegistrationStatus.SUBMITTED);
-        registration.setSubmittedAt(new Date());
-        registration.setApprovedAt(null);
-        registration.setRejectedAt(null);
-        registration.setRejectReason(null);
-
-        return toDto(pilotRegistrationRepository.save(registration));
+        PilotRegistrationEntity entity = pilotRegistrationRepository.findByPersonalIdNumber(request.getPersonalIdNumber()).orElseGet(() -> newEntity(request.getPersonalIdNumber()));
+        return createAndPersist(entity, request);
     }
 
     @Override
-    @Transactional(readOnly = true)
-    public PilotRegistrationStatusDto getByPilotId(String pilotId) throws InternalException {
-        return pilotRegistrationRepository.findByPilotId(pilotId)
-                .map(this::toDto)
-                .orElseThrow(() -> new InternalException(ErrorCode.ERROR_PILOT_REGISTRATION_NOT_FOUND));
+    public PilotRegistrationStatusDto update(String personalIdNumber, PilotRegistrationSubmitRequest request) throws InternalException {
+        PilotRegistrationEntity entity = pilotRegistrationRepository.findByPersonalIdNumber(personalIdNumber).orElseThrow(() -> new InternalException(ErrorCode.ERROR_PILOT_REGISTRATION_NOT_FOUND));
+        if (entity.getUtmPilotId() == null || entity.getUtmPilotId().isBlank()) throw new InternalException(ErrorCode.ERROR_PILOT_REGISTRATION_NOT_FOUND);
+        return updateAndPersist(entity, request, entity.getUtmPilotId());
     }
 
-    private UtmSessionContextDto requireConnectedSession() throws InternalException {
-        UtmSessionContextDto sessionContext = utmSessionService.getCurrentSessionContext();
-        if (!SessionStatus.CONNECTED.equals(sessionContext.status())) {
-            throw new InternalException(ErrorCode.ERROR_SESSION_NOT_CONNECTED);
+    @Override
+    public PilotRegistrationStatusDto getByPersonalIdNumber(String personalIdNumber) throws InternalException {
+        return pilotRegistrationRepository.findByPersonalIdNumber(personalIdNumber).map(pilotRegistrationMapper::toDto).orElseThrow(() -> new InternalException(ErrorCode.ERROR_PILOT_REGISTRATION_NOT_FOUND));
+    }
+
+    @Override
+    public PilotRegistrationStatusDto getByUtmPilotId(String utmPilotId) throws InternalException {
+        UtmSessionContextDto session = utmSessionContextProvider.getRequiredSessionContext();
+        PilotRegistryRecord record = utmPilotRegistryClient.getById(session.accessToken(), utmPilotId);
+        if (record == null) throw new InternalException(ErrorCode.ERROR_PILOT_REGISTRATION_NOT_FOUND);
+        return pilotRegistrationMapper.toUtmDto(record);
+    }
+
+    @Override
+    public List<PilotRegistrationStatusDto> searchUtm(String personalIdNumber, String licenseNumber, String phoneNumber) throws InternalException {
+        UtmSessionContextDto session = utmSessionContextProvider.getRequiredSessionContext();
+        return utmPilotRegistryClient.search(session.accessToken(), new PilotRegistrySearchRequest(personalIdNumber, licenseNumber, phoneNumber)).stream().map(pilotRegistrationMapper::toUtmDto).toList();
+    }
+
+    private PilotRegistrationStatusDto createAndPersist(PilotRegistrationEntity entity, PilotRegistrationSubmitRequest request) throws InternalException {
+        Date now = new Date();
+        PilotRegistryUpsertRequest payload = pilotRegistrationMapper.toUpsertRequest(request);
+        markSyncing(entity, request, payload, now);
+        try {
+            UtmSessionContextDto session = utmSessionContextProvider.getRequiredSessionContext();
+            PilotRegistryRecord record = utmPilotRegistryClient.create(session.accessToken(), payload);
+            applySuccess(entity, record, now);
+            return saveAndPublish(entity);
+        } catch (InternalException ex) {
+            applyFailure(entity, ex, now); saveAndPublish(entity); throw ex;
+        } catch (RuntimeException ex) {
+            applyFailure(entity, ex, now); saveAndPublish(entity); throw ex;
         }
-        return sessionContext;
     }
 
-    private void validateSubmitTransition(PilotRegistrationEntity registration) throws InternalException {
-        if (RegistrationStatus.SUBMITTED.equals(registration.getStatus())
-                || RegistrationStatus.APPROVED.equals(registration.getStatus())
-                || RegistrationStatus.REJECTED.equals(registration.getStatus())
-                || RegistrationStatus.SUSPENDED.equals(registration.getStatus())) {
-            throw new InternalException(ErrorCode.ERROR_REGISTRATION_ALREADY_SUBMITTED);
+    private PilotRegistrationStatusDto updateAndPersist(PilotRegistrationEntity entity, PilotRegistrationSubmitRequest request, String utmPilotId) throws InternalException {
+        Date now = new Date();
+        PilotRegistryUpsertRequest payload = pilotRegistrationMapper.toUpsertRequest(request);
+        markSyncing(entity, request, payload, now);
+        try {
+            UtmSessionContextDto session = utmSessionContextProvider.getRequiredSessionContext();
+            PilotRegistryRecord record = utmPilotRegistryClient.update(session.accessToken(), utmPilotId, payload);
+            applySuccess(entity, record, now);
+            return saveAndPublish(entity);
+        } catch (InternalException ex) {
+            applyFailure(entity, ex, now); saveAndPublish(entity); throw ex;
+        } catch (RuntimeException ex) {
+            applyFailure(entity, ex, now); saveAndPublish(entity); throw ex;
         }
     }
 
-    private PilotRegistrationStatusDto toDto(PilotRegistrationEntity registration) {
-        return PilotRegistrationStatusDto.builder()
-                .id(registration.getId())
-                .pilotId(registration.getPilotId())
-                .utmPilotId(registration.getUtmPilotId())
-                .status(registration.getStatus())
-                .submittedAt(registration.getSubmittedAt())
-                .approvedAt(registration.getApprovedAt())
-                .rejectedAt(registration.getRejectedAt())
-                .rejectReason(registration.getRejectReason())
-                .build();
+    private PilotRegistrationEntity newEntity(String personalIdNumber) {
+        PilotRegistrationEntity entity = new PilotRegistrationEntity();
+        entity.setPersonalIdNumber(personalIdNumber);
+        entity.setSyncStatus(RegistrationSyncStatus.PENDING);
+        entity.setStatus(RegistrationStatus.DRAFT);
+        return entity;
+    }
+
+    private void markSyncing(PilotRegistrationEntity entity, PilotRegistrationSubmitRequest request, Object payload, Date now) {
+        pilotRegistrationMapper.applySubmitRequest(entity, request);
+        entity.setSyncStatus(RegistrationSyncStatus.SYNCING);
+        entity.setSyncErrorCode(null);
+        entity.setSyncErrorMessage(null);
+        entity.setRequestPayloadSnapshot(toJson(payload));
+        entity.setSubmittedAt(now);
+    }
+
+    private void applySuccess(PilotRegistrationEntity entity, PilotRegistryRecord record, Date now) {
+        pilotRegistrationMapper.applyUtmRecord(entity, record);
+        entity.setSyncStatus(RegistrationSyncStatus.SYNCED);
+        entity.setSyncErrorCode(null);
+        entity.setSyncErrorMessage(null);
+        entity.setResponsePayloadSnapshot(toJson(record));
+        entity.setLastSyncedAt(now);
+        entity.setApprovedAt(null);
+        entity.setRejectedAt(null);
+    }
+
+    private void applyFailure(PilotRegistrationEntity entity, Exception ex, Date now) {
+        log.error("pilot_registration_sync_failed personalIdNumber={} message={}", entity.getPersonalIdNumber(), ex.getMessage(), ex);
+        entity.setSyncStatus(RegistrationSyncStatus.SYNC_FAILED);
+        entity.setSyncErrorCode("UTM_REGISTRY_SYNC_FAILED");
+        entity.setSyncErrorMessage(ex.getMessage());
+        entity.setLastSyncedAt(now);
+        entity.setResponsePayloadSnapshot(null);
+    }
+
+    private PilotRegistrationStatusDto saveAndPublish(PilotRegistrationEntity entity) {
+        PilotRegistrationEntity saved = pilotRegistrationRepository.save(entity);
+        PilotRegistrationStatusDto dto = pilotRegistrationMapper.toDto(saved);
+        publisher.publish(dto);
+        return dto;
+    }
+
+    private String toJson(Object value) {
+        try { return value == null ? null : objectMapper.writeValueAsString(value); }
+        catch (JsonProcessingException ex) { throw new IllegalStateException("FAILED_TO_SERIALIZE_REGISTRATION_SNAPSHOT", ex); }
     }
 }
