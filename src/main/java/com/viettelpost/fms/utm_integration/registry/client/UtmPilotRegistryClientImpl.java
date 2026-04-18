@@ -1,7 +1,9 @@
 package com.viettelpost.fms.utm_integration.registry.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.viettelpost.fms.utm_integration.enumeration.ErrorCode;
+import com.viettelpost.fms.utm_integration.exception.InternalException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,99 +31,179 @@ public class UtmPilotRegistryClientImpl implements UtmPilotRegistryClient {
     private String utmBaseUrl;
 
     @Value("${integration.utm.registry.pilot-license-path:/PilotLicense}")
-    private String pilotLicensePath;
+    private String pilotPath;
 
     @Override
-    public PilotRegistryRecord create(String accessToken, PilotRegistryUpsertRequest request) {
+    public PilotRegistryRecord create(String accessToken, PilotRegistryUpsertRequest request) throws InternalException {
         URI uri = buildBaseUri();
-        log.info("utm_pilot_registry_create_start url={} licenseNumber={}", uri, request.licenseNumber());
-        return parseSingleRecord(restClient.post()
+        log.info("utm_pilot_registry_create_start url={} licenseNumber={} personalIdNumber={}",
+                uri, request.licenseNumber(), request.personalIdNumber());
+
+        try {
+            log.info("utm_pilot_registry_create_payload={}", objectMapper.writeValueAsString(request));
+        } catch (Exception ex) {
+            log.warn("utm_pilot_registry_create_payload_serialize_failed message={}", ex.getMessage(), ex);
+        }
+
+        String body = restClient.post()
                 .uri(uri)
-                .headers(headers -> applyBearerAuth(headers, accessToken))
+                .headers(h -> applyBearerAuth(h, accessToken))
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.APPLICATION_JSON)
                 .body(request)
                 .retrieve()
-                .body(String.class));
+                .body(String.class);
+
+        return parseSingleRecord(body);
     }
 
     @Override
-    public PilotRegistryRecord getById(String accessToken, String utmPilotId) {
+    public PilotRegistryRecord getById(String accessToken, String utmPilotId) throws InternalException {
         URI uri = buildByIdUri(utmPilotId);
         log.info("utm_pilot_registry_get_start url={} utmPilotId={}", uri, utmPilotId);
-        return parseSingleRecord(restClient.get()
+
+        String body = restClient.get()
                 .uri(uri)
-                .headers(headers -> applyBearerAuth(headers, accessToken))
+                .headers(h -> applyBearerAuth(h, accessToken))
                 .accept(MediaType.APPLICATION_JSON)
                 .retrieve()
-                .body(String.class));
+                .body(String.class);
+
+        return parseSingleRecord(body);
     }
 
     @Override
-    public List<PilotRegistryRecord> search(String accessToken, PilotRegistrySearchRequest request) {
+    public List<PilotRegistryRecord> search(String accessToken, PilotRegistrySearchRequest request) throws InternalException {
         URI uri = buildSearchUri(request);
-        log.info("utm_pilot_registry_search_start url={} personalIdNumber={} licenseNumber={} phoneNumber={}", uri, request.personalIdNumber(), request.licenseNumber(), request.phoneNumber());
-        return parseRecordList(restClient.get()
+        log.info("utm_pilot_registry_search_start url={} personalIdNumber={} licenseNumber={} phoneNumber={}",
+                uri, request.personalIdNumber(), request.licenseNumber(), request.phoneNumber());
+
+        String body = restClient.get()
                 .uri(uri)
-                .headers(headers -> applyBearerAuth(headers, accessToken))
+                .headers(h -> applyBearerAuth(h, accessToken))
                 .accept(MediaType.APPLICATION_JSON)
                 .retrieve()
-                .body(String.class));
+                .body(String.class);
+
+        return parseSearchRecords(body);
     }
 
     @Override
-    public PilotRegistryRecord update(String accessToken, String utmPilotId, PilotRegistryUpsertRequest request) {
+    public PilotRegistryRecord update(String accessToken, String utmPilotId, PilotRegistryUpsertRequest request) throws InternalException {
         URI uri = buildByIdUri(utmPilotId);
-        log.info("utm_pilot_registry_update_start url={} utmPilotId={} licenseNumber={}", uri, utmPilotId, request.licenseNumber());
-        return parseSingleRecord(restClient.put()
+        log.info("utm_pilot_registry_update_start url={} utmPilotId={}", uri, utmPilotId);
+
+        try {
+            log.info("utm_pilot_registry_update_payload={}", objectMapper.writeValueAsString(request));
+        } catch (Exception ex) {
+            log.warn("utm_pilot_registry_update_payload_serialize_failed message={}", ex.getMessage(), ex);
+        }
+
+        String body = restClient.put()
                 .uri(uri)
-                .headers(headers -> applyBearerAuth(headers, accessToken))
+                .headers(h -> applyBearerAuth(h, accessToken))
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.APPLICATION_JSON)
                 .body(request)
                 .retrieve()
-                .body(String.class));
+                .body(String.class);
+
+        return parseSingleRecord(body);
     }
 
     private URI buildBaseUri() {
-        return UriComponentsBuilder.fromUriString(utmBaseUrl).path(normalizePath(pilotLicensePath)).build(true).toUri();
+        return UriComponentsBuilder.fromUriString(utmBaseUrl)
+                .path(normalizePath(pilotPath))
+                .build(true)
+                .toUri();
     }
 
     private URI buildByIdUri(String utmPilotId) {
-        return UriComponentsBuilder.fromUriString(utmBaseUrl).path(normalizePath(pilotLicensePath)).pathSegment(utmPilotId).build(true).toUri();
+        return UriComponentsBuilder.fromUriString(utmBaseUrl)
+                .path(normalizePath(pilotPath))
+                .pathSegment(utmPilotId)
+                .build(true)
+                .toUri();
     }
 
     private URI buildSearchUri(PilotRegistrySearchRequest request) {
-        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(utmBaseUrl).path(normalizePath(pilotLicensePath));
-        if (StringUtils.hasText(request.personalIdNumber())) builder.queryParam("personal_id_number", request.personalIdNumber());
-        if (StringUtils.hasText(request.licenseNumber())) builder.queryParam("license_number", request.licenseNumber());
-        if (StringUtils.hasText(request.phoneNumber())) builder.queryParam("phone_number", request.phoneNumber());
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(utmBaseUrl)
+                .path(normalizePath(pilotPath));
+
+        if (StringUtils.hasText(request.personalIdNumber())) {
+            builder.queryParam("personal_id_number", request.personalIdNumber());
+        }
+        if (StringUtils.hasText(request.licenseNumber())) {
+            builder.queryParam("license_number", request.licenseNumber());
+        }
+        if (StringUtils.hasText(request.phoneNumber())) {
+            builder.queryParam("phone_number", request.phoneNumber());
+        }
+
         return builder.build(true).toUri();
     }
 
     private String normalizePath(String path) {
-        if (!StringUtils.hasText(path)) return "";
+        if (!StringUtils.hasText(path)) {
+            return "";
+        }
         return path.startsWith("/") ? path : "/" + path;
     }
 
     private void applyBearerAuth(HttpHeaders headers, String accessToken) {
-        if (StringUtils.hasText(accessToken)) headers.setBearerAuth(accessToken);
+        if (StringUtils.hasText(accessToken)) {
+            headers.setBearerAuth(accessToken);
+        }
     }
 
-    private PilotRegistryRecord parseSingleRecord(String body) {
-        List<PilotRegistryRecord> records = parseRecordList(body);
-        return records.isEmpty() ? null : records.get(0);
-    }
-
-    private List<PilotRegistryRecord> parseRecordList(String body) {
+    private PilotRegistryRecord parseSingleRecord(String body) throws InternalException {
         try {
-            JsonNode root = objectMapper.readTree(body);
-            JsonNode payload = root.has("data") ? root.get("data") : root;
-            if (payload == null || payload.isNull() || payload.isMissingNode()) return Collections.emptyList();
-            if (payload.isArray()) return objectMapper.readerForListOf(PilotRegistryRecord.class).readValue(payload);
-            return List.of(objectMapper.treeToValue(payload, PilotRegistryRecord.class));
+            JavaType envelopeType = objectMapper.getTypeFactory()
+                    .constructParametricType(UtmRegistryResponseEnvelope.class, PilotRegistryRecord.class);
+
+            UtmRegistryResponseEnvelope<PilotRegistryRecord> envelope =
+                    objectMapper.readValue(body, envelopeType);
+
+            validateEnvelope(envelope, "UTM pilot registry error");
+            return envelope.getData();
+        } catch (InternalException ex) {
+            throw ex;
         } catch (IOException ex) {
-            throw new IllegalStateException("Unable to parse pilot registry response", ex);
+            throw new IllegalStateException("Unable to parse pilot registry single response", ex);
+        }
+    }
+
+    private List<PilotRegistryRecord> parseSearchRecords(String body) throws InternalException {
+        try {
+            JavaType envelopeType = objectMapper.getTypeFactory()
+                    .constructParametricType(UtmRegistryResponseEnvelope.class, PilotRegistrySearchData.class);
+
+            UtmRegistryResponseEnvelope<PilotRegistrySearchData> envelope =
+                    objectMapper.readValue(body, envelopeType);
+
+            validateEnvelope(envelope, "UTM pilot registry search error");
+
+            if (envelope.getData() == null || envelope.getData().items() == null) {
+                return Collections.emptyList();
+            }
+
+            return envelope.getData().items();
+        } catch (InternalException ex) {
+            throw ex;
+        } catch (IOException ex) {
+            throw new IllegalStateException("Unable to parse pilot registry search response", ex);
+        }
+    }
+
+    private void validateEnvelope(UtmRegistryResponseEnvelope<?> envelope, String defaultMessage) throws InternalException {
+        if (envelope == null || envelope.getCode() == null || envelope.getCode() != 0) {
+            String message = envelope != null ? envelope.getMessage() : null;
+            throw new InternalException(
+                    null,
+                    ErrorCode.ERROR_GENERAL.name(),
+                    StringUtils.hasText(message) ? message : defaultMessage,
+                    Collections.emptyList()
+            );
         }
     }
 }

@@ -43,7 +43,7 @@ public class DroneRegistrationMapper {
         );
 
         return new DroneRegistryUpsertRequest(
-                request.getDroneStatus() == null ? null : String.valueOf(request.getDroneStatus()),
+                request.getDroneStatus(),
                 request.getImage(),
                 basicInfo,
                 spec

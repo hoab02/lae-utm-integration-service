@@ -8,9 +8,9 @@ spring:
   application:
     name: fms-utm-integration-service
   datasource:
-    url: jdbc:postgresql://171.244.51.249:8001/lae_utm?currentSchema=lae_utm
-    username: lae_user
-    password: fsy21da3E
+    url: jdbc:postgresql://localhost:5433/fms_utm_integration
+    username: postgres
+    password: my-password-1
     driver-class-name: org.postgresql.Driver
     hikari:
       connection-timeout: 30000 # 30s
@@ -48,13 +48,13 @@ spring:
       mode: always
       continue-on-error: true
   kafka:
-    bootstrap-servers: 10.29.106.147:9092
+    bootstrap-servers: localhost:29092
   cloud:
     stream:
       output-bindings: sessionStatusOut
       kafka:
         binder:
-          brokers: 10.29.106.147:9092
+          brokers: localhost:29092
           configuration:
             acks: all
             retries: 3
@@ -110,7 +110,7 @@ app:
 
 integration:
   utm:
-    base-url: http://localhost:8081
+    base-url: https://national-utm.airtransys.site:9443
     dcs-id: vtp_system
     username: vtpost
     password: 123456a@
@@ -119,9 +119,9 @@ integration:
       refresh-path: /utm-qg/oauth2/refresh_token
       refresh-before-seconds: 300
     registry:
-      drone-path: /DroneRegistry
-      pilot-license-path: /PilotLicense
+      drone-path: /utm-drones/drones
+      pilot-license-path: /utm-pilot/pilot-license
     approval:
-      submit-path: /api/v1/flight-approvals
+      submit-path: /utm-flight-authorization/flight-permit-cases
     worker:
       refresh-interval-ms: 60000
