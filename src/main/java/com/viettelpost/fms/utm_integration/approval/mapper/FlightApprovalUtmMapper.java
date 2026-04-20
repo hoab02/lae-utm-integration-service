@@ -158,31 +158,12 @@ public class FlightApprovalUtmMapper {
             target.setIdNumber(item.getIdNumber());
             target.setLicenseNo(item.getLicenseNo());
             target.setPhone(item.getPhone());
-            target.setDateOfBirth(extractTimeValue(item.getDateOfBirth()));
-            target.setLicenseIssueDate(extractTimeValue(item.getLicenseIssueDate()));
-
-//            if (item.getDateOfBirth() != null) {
-//                UtmFlightApprovalSubmitRequest.TimeWrapper dob = new UtmFlightApprovalSubmitRequest.TimeWrapper();
-//                dob.setTime(item.getDateOfBirth().getTime());
-//                target.setDateOfBirth(dob);
-//            }
-//
-//            if (item.getLicenseIssueDate() != null) {
-//                UtmFlightApprovalSubmitRequest.TimeWrapper issueDate = new UtmFlightApprovalSubmitRequest.TimeWrapper();
-//                issueDate.setTime(item.getLicenseIssueDate().getTime());
-//                target.setLicenseIssueDate(issueDate);
-//            }
-
+            target.setDateOfBirth(item.getDateOfBirth());
+            target.setLicenseIssueDate(item.getLicenseIssueDate());
             return target;
         }).collect(Collectors.toList());
     }
 
-    private String extractTimeValue(UtmFlightApprovalRequest.TimeWrapper source) {
-        if (source == null) {
-            return null;
-        }
-        return source.getTime();
-    }
 
     private UtmFlightApprovalSubmitRequest.ReceivingAuthority mapReceivingAuthority(
             UtmFlightApprovalRequest.ReceivingAuthority source) {

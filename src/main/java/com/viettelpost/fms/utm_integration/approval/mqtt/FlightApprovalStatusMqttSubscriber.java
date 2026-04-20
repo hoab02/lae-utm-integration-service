@@ -26,11 +26,11 @@ public class FlightApprovalStatusMqttSubscriber {
             UtmFlightApprovalStatusMessage message =
                     objectMapper.readValue(payload, UtmFlightApprovalStatusMessage.class);
 
-            log.info("approval_mqtt_status_received planId={} applicationId={} requestId={} status={}",
-                    message.getPlanId(),
-                    message.getApplicationId(),
-                    message.getRequestId(),
-                    message.getStatus());
+            log.info("approval_mqtt_status_received eventType={} objectId={} objectName={} eventStatus={}",
+                    message.getEventType(),
+                    message.getObjectId(),
+                    message.getObjectName(),
+                    message.getEventStatus());
 
             flightApprovalService.handleUtmStatus(message);
         } catch (Exception e) {

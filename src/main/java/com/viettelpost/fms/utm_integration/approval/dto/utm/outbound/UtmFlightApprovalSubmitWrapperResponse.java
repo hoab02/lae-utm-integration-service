@@ -6,10 +6,9 @@ import lombok.Data;
 
 @Data
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-public class UtmFlightApprovalSubmitResponse {
+public class UtmFlightApprovalSubmitWrapperResponse {
 
-    private String id;
-    private String requestId;
-    private String status;
-
+    private Integer code;
+    private String message;
+    private UtmFlightApprovalSubmitResponse data;
 }

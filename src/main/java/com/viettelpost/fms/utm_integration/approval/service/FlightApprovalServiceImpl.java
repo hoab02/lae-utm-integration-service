@@ -61,7 +61,7 @@ public class FlightApprovalServiceImpl implements FlightApprovalService {
                 .id(UUID.randomUUID().toString())
                 .planId(planId)
                 .missionId(null)
-                .utmApplicationId(utmResponse != null ? utmResponse.getApplicationId() : null)
+                .utmApplicationId(utmResponse != null ? utmResponse.getId() : null)
                 .utmRequestId(utmResponse != null ? utmResponse.getRequestId() : null)
                 .status(ApprovalStatus.PENDING)
                 .submittedAt(now)
@@ -106,20 +106,16 @@ public class FlightApprovalServiceImpl implements FlightApprovalService {
                         "Flight approval not found for inbound status message"
                 ));
 
-        ApprovalStatus newStatus = mapInboundStatus(message.getStatus());
+        ApprovalStatus newStatus = mapInboundStatus(message.getEventStatus());
         validateTransition(entity.getStatus(), newStatus);
 
         entity.setUtmLastStatusPayload(jsonUtils.toJson(message));
 
-        if (message.getApplicationId() != null && entity.getUtmApplicationId() == null) {
-            entity.setUtmApplicationId(message.getApplicationId());
+        if (message.getObjectId() != null && entity.getUtmApplicationId() == null) {
+            entity.setUtmApplicationId(message.getObjectId());
         }
 
-        if (message.getRequestId() != null && entity.getUtmRequestId() == null) {
-            entity.setUtmRequestId(message.getRequestId());
-        }
-
-        applyStatus(entity, newStatus, message.getReason());
+        applyStatus(entity, newStatus, null);
         repository.save(entity);
         kafkaPublisher.publish(toKafkaEvent(entity));
 
@@ -138,25 +134,13 @@ public class FlightApprovalServiceImpl implements FlightApprovalService {
     }
 
     private Optional<FlightApprovalEntity> findTargetEntity(UtmFlightApprovalStatusMessage message) {
-        if (message.getPlanId() != null && !message.getPlanId().isBlank()) {
-            Optional<FlightApprovalEntity> byPlanId = repository.findByPlanId(message.getPlanId());
-            if (byPlanId.isPresent()) {
-                return byPlanId;
-            }
-        }
-
-        if (message.getApplicationId() != null && !message.getApplicationId().isBlank()) {
+        if (message.getObjectId() != null && !message.getObjectId().isBlank()) {
             Optional<FlightApprovalEntity> byApplicationId =
-                    repository.findByUtmApplicationId(message.getApplicationId());
+                    repository.findByUtmApplicationId(message.getObjectId());
             if (byApplicationId.isPresent()) {
                 return byApplicationId;
             }
         }
-
-        if (message.getRequestId() != null && !message.getRequestId().isBlank()) {
-            return repository.findByUtmRequestId(message.getRequestId());
-        }
-
         return Optional.empty();
     }
 

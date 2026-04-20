@@ -127,20 +127,7 @@ public class UtmFlightApprovalSubmitRequest {
 
         private String dateOfBirth;
         private String licenseIssueDate;
-
-//        @JsonProperty("date_of_birth")
-//        private TimeWrapper dateOfBirth;
-//
-//        @JsonProperty("license_issue_date")
-//        private TimeWrapper licenseIssueDate;
-
     }
-//
-//    @Data
-//    public static class TimeWrapper {
-//        @JsonProperty("time.Time")
-//        private String time;
-//    }
 
     @Data
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)

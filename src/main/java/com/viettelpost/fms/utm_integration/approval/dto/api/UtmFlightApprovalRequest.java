@@ -150,17 +150,8 @@ public class UtmFlightApprovalRequest {
         private String licenseNo;
         private String phone;
 
-        @JsonProperty("date_of_birth")
-        private TimeWrapper dateOfBirth;
-
-        @JsonProperty("license_issue_date")
-        private TimeWrapper licenseIssueDate;
-    }
-
-    @Data
-    public static class TimeWrapper {
-        @JsonProperty("time.Time")
-        private String time;
+        private String dateOfBirth;
+        private String licenseIssueDate;
     }
 
     @Data
